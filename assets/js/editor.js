@@ -34,6 +34,17 @@
                 handleTranslateEvent(e.target);
             });
             
+            // Event binding for copy from reference buttons
+            $(document).on('click', '.eit-copy-reference-button', function(e) {
+                console.log('EIT Debug: Copy reference button clicked!', e);
+                e.preventDefault();
+                e.stopPropagation();
+                
+                var controlName = $(this).data('control-name');
+                console.log('EIT Debug: Copy button has control name:', controlName);
+                handleCopyFromReference(e.target, controlName);
+            });
+            
             eventsBound = true;
             console.log('EIT Debug: Event binding completed');
         }
@@ -491,6 +502,417 @@
                 }
             });
         }
+
+        /**
+         * Handle copy from reference button click
+         */
+        function handleCopyFromReference(buttonElement, controlName) {
+            console.log('EIT Debug: Starting copy from reference for control:', controlName);
+            
+            if (!eit_vars.is_polylang_active) {
+                console.error('EIT Error: PolyLang is not active');
+                elementor.notifications.showToast({
+                    message: 'EIT: PolyLang plugin er ikke aktiv.',
+                    type: 'error'
+                });
+                return;
+            }
+            
+            if (!eit_vars.is_translation) {
+                console.error('EIT Error: Current page is not a translation');
+                elementor.notifications.showToast({
+                    message: 'EIT: Denne side er ikke en oversættelse.',
+                    type: 'warning'
+                });
+                return;
+            }
+            
+            // Get current widget model
+            let widgetModel = getCurrentWidgetModel();
+            if (!widgetModel) {
+                console.error('EIT Error: Could not find widget model for copy operation');
+                elementor.notifications.showToast({
+                    message: 'EIT: Kunne ikke finde det aktuelle element.',
+                    type: 'error'
+                });
+                return;
+            }
+            
+            let elementId = '';
+            try {
+                if (widgetModel.get && typeof widgetModel.get === 'function') {
+                    elementId = widgetModel.get('id') || '';
+                } else if (widgetModel.attributes) {
+                    elementId = widgetModel.attributes.id || '';
+                } else {
+                    elementId = widgetModel.id || '';
+                }
+            } catch (error) {
+                console.error('EIT Error: Error extracting element ID:', error);
+                return;
+            }
+            
+            console.log('EIT Debug: Getting reference text for element:', elementId, 'control:', controlName);
+            
+            // Set button to loading state
+            const button = jQuery(buttonElement);
+            button.addClass('loading').prop('disabled', true);
+            
+            // Show loading notification
+            elementor.notifications.showToast({
+                message: 'EIT: Henter reference tekst...',
+                type: 'info'
+            });
+            
+            // Get reference text from main language
+            jQuery.ajax({
+                url: eit_vars.ajax_url,
+                type: 'POST',
+                data: {
+                    action: 'eit_get_reference_text',
+                    nonce: eit_vars.nonce,
+                    element_id: elementId,
+                    control_name: controlName,
+                    post_id: eit_vars.current_post_id
+                },
+                success: function(response) {
+                    console.log('EIT Debug: Reference text response:', response);
+                    
+                    if (response.success && response.data && response.data.reference_text) {
+                        // Copy reference text to current control
+                        copyTextToControl(widgetModel, controlName, response.data.reference_text);
+                        
+                        elementor.notifications.showToast({
+                            message: 'EIT: Reference tekst kopieret!',
+                            type: 'success'
+                        });
+                    } else {
+                        console.error('EIT Error: Failed to get reference text:', response);
+                        elementor.notifications.showToast({
+                            message: 'EIT: Kunne ikke hente reference tekst: ' + (response.data || 'Ukendt fejl'),
+                            type: 'error'
+                        });
+                    }
+                    
+                    // Remove loading state
+                    button.removeClass('loading').prop('disabled', false);
+                },
+                error: function(xhr, status, error) {
+                    console.error('EIT Error: AJAX request failed for reference text:', xhr, status, error);
+                    elementor.notifications.showToast({
+                        message: 'EIT: Netværksfejl ved hentning af reference tekst.',
+                        type: 'error'
+                    });
+                    
+                    // Remove loading state
+                    button.removeClass('loading').prop('disabled', false);
+                }
+            });
+        }
+
+        /**
+         * Get current widget model helper function
+         */
+        function getCurrentWidgetModel() {
+            let widgetModel = null;
+            
+            try {
+                if (elementor && elementor.getPanelView) {
+                    const panelView = elementor.getPanelView();
+                    if (panelView && panelView.getCurrentPageView) {
+                        const pageView = panelView.getCurrentPageView();
+                        if (pageView && pageView.getOption && pageView.getOption('editedElementView')) {
+                            const editedElementView = pageView.getOption('editedElementView');
+                            if (editedElementView && editedElementView.model) {
+                                widgetModel = editedElementView.model;
+                                console.log('EIT Debug: Got widget model from edited element view');
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('EIT Debug: Error getting current widget model:', error);
+            }
+            
+            return widgetModel;
+        }
+
+        /**
+         * Copy text to control and update UI
+         */
+        function copyTextToControl(widgetModel, controlName, text) {
+            console.log('EIT Debug: Copying text to control:', controlName, 'Text:', text);
+            
+            if (!widgetModel || !controlName || !text) {
+                console.error('EIT Error: Missing parameters for copyTextToControl');
+                return;
+            }
+            
+            // Get settings from model
+            let settings = null;
+            try {
+                if (widgetModel.get && typeof widgetModel.get === 'function') {
+                    settings = widgetModel.get('settings');
+                } else if (widgetModel.attributes) {
+                    settings = widgetModel.attributes.settings;
+                } else {
+                    settings = widgetModel.settings;
+                }
+            } catch (error) {
+                console.error('EIT Error: Error getting settings from model:', error);
+                return;
+            }
+            
+            if (!settings) {
+                console.error('EIT Error: Could not get settings from widget model');
+                return;
+            }
+            
+            // Update setting value
+            function setSetting(key, value) {
+                try {
+                    if (settings && settings.set && typeof settings.set === 'function') {
+                        settings.set(key, value);
+                        console.log('EIT Debug: Used Backbone model.set()');
+                    } else if (settings && settings.attributes) {
+                        settings.attributes[key] = value;
+                        console.log('EIT Debug: Updated model attributes directly');
+                        // Trigger change event on the settings model if possible
+                        if (settings.trigger && typeof settings.trigger === 'function') {
+                            setTimeout(function() {
+                                try {
+                                    settings.trigger('change:' + key);
+                                    settings.trigger('change');
+                                } catch (triggerError) {
+                                    console.log('EIT Debug: Error triggering settings change:', triggerError);
+                                }
+                            }, 10);
+                        }
+                    } else if (settings) {
+                        settings[key] = value;
+                        console.log('EIT Debug: Updated plain object property');
+                    }
+                } catch (error) {
+                    console.error('EIT Debug: Error setting value:', error);
+                }
+            }
+            
+            setSetting(controlName, text);
+            
+            // Update the UI controls - same approach as translation
+            setTimeout(function() {
+                updateControlUI(controlName, text);
+            }, 50);
+            
+            // Mark document as dirty
+            try {
+                if (elementor.documents && elementor.documents.getCurrent) {
+                    const currentDocument = elementor.documents.getCurrent();
+                    if (currentDocument && currentDocument.setDirty) {
+                        currentDocument.setDirty(true);
+                        console.log('EIT Debug: Marked document as dirty for saving');
+                    }
+                }
+            } catch (error) {
+                console.log('EIT Debug: Could not mark document as dirty:', error);
+            }
+        }
+
+        /**
+         * Update control UI with new text
+         */
+        function updateControlUI(controlName, text) {
+            try {
+                // Method 1: Update via the panel control directly
+                if (elementor.getPanelView && elementor.getPanelView().getCurrentPageView) {
+                    const currentPageView = elementor.getPanelView().getCurrentPageView();
+                    if (currentPageView && currentPageView.children) {
+                        // Find the specific control for our text field
+                        const controls = currentPageView.children._views || currentPageView.children;
+                        
+                        Object.keys(controls).forEach(function(controlId) {
+                            const control = controls[controlId];
+                            if (control && control.options && control.options.model) {
+                                const controlModel = control.options.model;
+                                if (controlModel.get && controlModel.get('name') === controlName) {
+                                    console.log('EIT Debug: Found control for field:', controlName);
+                                    
+                                    // Update the control's input value
+                                    if (control.$el && control.$el.find) {
+                                        const input = control.$el.find('input, textarea, .elementor-control-input-wrapper');
+                                        if (input.length > 0) {
+                                            // For TinyMCE editors
+                                            if (controlName === 'editor' && window.tinymce) {
+                                                const editorId = input.attr('id');
+                                                if (editorId && window.tinymce.get(editorId)) {
+                                                    window.tinymce.get(editorId).setContent(text);
+                                                    window.tinymce.get(editorId).fire('change');
+                                                    console.log('EIT Debug: Updated TinyMCE editor content');
+                                                } else {
+                                                    input.val(text).trigger('input').trigger('change');
+                                                    console.log('EIT Debug: Updated textarea directly as TinyMCE fallback');
+                                                }
+                                            } else {
+                                                // For regular inputs
+                                                input.val(text).trigger('input').trigger('change');
+                                                console.log('EIT Debug: Updated input value and triggered events');
+                                            }
+                                        }
+                                    }
+                                    
+                                    // Trigger control-specific events
+                                    if (control.onModelChange && typeof control.onModelChange === 'function') {
+                                        control.onModelChange();
+                                        console.log('EIT Debug: Called control onModelChange');
+                                    }
+                                    
+                                    if (control.render && typeof control.render === 'function') {
+                                        control.render();
+                                        console.log('EIT Debug: Re-rendered control');
+                                    }
+                                }
+                            }
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('EIT Debug: Error updating control UI:', error);
+            }
+        }
+
+        /**
+         * Load reference text automatically when widget is selected (if on translation page)
+         */
+        function loadReferenceTextForWidget(widgetModel) {
+            if (!eit_vars.is_polylang_active || !eit_vars.is_translation) {
+                return; // Not a translation page or PolyLang not active
+            }
+            
+            console.log('EIT Debug: Loading reference text for widget');
+            
+            let widgetType, elementId;
+            
+            try {
+                if (widgetModel.get && typeof widgetModel.get === 'function') {
+                    widgetType = widgetModel.get('widgetType');
+                    elementId = widgetModel.get('id') || '';
+                } else if (widgetModel.attributes) {
+                    widgetType = widgetModel.attributes.widgetType;
+                    elementId = widgetModel.attributes.id || '';
+                } else {
+                    widgetType = widgetModel.widgetType;
+                    elementId = widgetModel.id || '';
+                }
+            } catch (error) {
+                console.error('EIT Error: Error extracting widget data for reference:', error);
+                return;
+            }
+            
+            if (!widgetType || !elementId) {
+                console.log('EIT Debug: Missing widget type or element ID for reference loading');
+                return;
+            }
+            
+            // Only load reference for supported widget types
+            let supportedControls = [];
+            switch (widgetType) {
+                case 'heading':
+                    supportedControls = ['title'];
+                    break;
+                case 'text-editor':
+                    supportedControls = ['editor'];
+                    break;
+                case 'button':
+                    supportedControls = ['text'];
+                    break;
+                default:
+                    console.log('EIT Debug: Widget type not supported for reference loading:', widgetType);
+                    return;
+            }
+            
+            // Load reference text for each supported control
+            supportedControls.forEach(function(controlName) {
+                jQuery.ajax({
+                    url: eit_vars.ajax_url,
+                    type: 'POST',
+                    data: {
+                        action: 'eit_get_reference_text',
+                        nonce: eit_vars.nonce,
+                        element_id: elementId,
+                        control_name: controlName,
+                        post_id: eit_vars.current_post_id
+                    },
+                    success: function(response) {
+                        console.log('EIT Debug: Reference text loaded for control:', controlName, response);
+                        
+                        if (response.success && response.data && response.data.reference_text) {
+                            // Store reference text in a global object for UI display
+                            window.eitReferenceTexts = window.eitReferenceTexts || {};
+                            window.eitReferenceTexts[elementId + '_' + controlName] = response.data.reference_text;
+                            
+                            // Update reference text fields in UI if they exist
+                            updateReferenceTextDisplay(elementId, controlName, response.data.reference_text);
+                            
+                            // Also try to update it using a delayed approach for dynamic UI
+                            setTimeout(function() {
+                                updateReferenceTextDisplay(elementId, controlName, response.data.reference_text);
+                            }, 500);
+                        } else {
+                            console.log('EIT Debug: No reference text found for control:', controlName);
+                            // Update UI to show that no reference text was found
+                            updateReferenceTextDisplay(elementId, controlName, 'Ingen reference tekst fundet');
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        console.log('EIT Debug: Failed to load reference text for control:', controlName, error);
+                    }
+                });
+            });
+        }
+
+        /**
+         * Update reference text display in UI
+         */
+        function updateReferenceTextDisplay(elementId, controlName, referenceText) {
+            try {
+                // Find reference text display elements with improved selectors
+                const possibleSelectors = [
+                    '.eit-reference-text[data-control-name="' + controlName + '"]',
+                    '[data-setting="eit_reference_text_' + controlName + '"] textarea',
+                    '.elementor-control-eit_reference_text_' + controlName + ' textarea',
+                    '.eit-reference-field textarea'
+                ];
+                
+                let referenceDisplay = null;
+                
+                // Try each selector until we find the element
+                for (let selector of possibleSelectors) {
+                    referenceDisplay = jQuery(selector);
+                    if (referenceDisplay.length > 0) {
+                        console.log('EIT Debug: Found reference display with selector:', selector);
+                        break;
+                    }
+                }
+                
+                if (referenceDisplay && referenceDisplay.length > 0) {
+                    referenceDisplay.val(referenceText);
+                    referenceDisplay.attr('placeholder', referenceText);
+                    // Also update any readonly attribute to show the text
+                    referenceDisplay.prop('readonly', true);
+                    console.log('EIT Debug: Updated reference text display for:', controlName);
+                } else {
+                    console.log('EIT Debug: Could not find reference text display element for:', controlName);
+                }
+            } catch (error) {
+                console.error('EIT Debug: Error updating reference text display:', error);
+            }
+        }
+
+        // Listen for element selection to load reference text
+        elementor.hooks.addAction('panel/open_editor/widget', function(panel, model, view) {
+            console.log('EIT Debug: Widget editor opened, loading reference text');
+            loadReferenceTextForWidget(model);
+        });
         
         console.log('Elementor Inline Translate editor script loaded and initialized.');
     });

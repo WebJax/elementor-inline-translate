@@ -64,6 +64,43 @@ class Elementor_Inline_Translate_Integration {
             ]
         );
 
+        // Tilføj reference tekst felt (kun hvis PolyLang er aktivt og dette er en oversættelse)
+        $main_plugin = \Elementor_Inline_Translate::instance();
+        if ( $main_plugin->is_polylang_active() && $main_plugin->is_current_page_translation() ) {
+            $element->add_control(
+                'eit_reference_text_' . $text_control_name,
+                [
+                    'label' => sprintf( 
+                        __( 'Reference (%s)', 'elementor-inline-translate' ), 
+                        strtoupper( $main_plugin->get_default_language() )
+                    ),
+                    'type' => \Elementor\Controls_Manager::TEXTAREA,
+                    'default' => __( 'Indlæser reference tekst...', 'elementor-inline-translate' ),
+                    'description' => __( 'Tekst fra hovedsprogets version af dette element', 'elementor-inline-translate' ),
+                    'rows' => 3,
+                    'classes' => 'eit-reference-field eit-reference-text',
+                    'separator' => 'before',
+                    'dynamic' => [
+                        'active' => false, // Disable dynamic content
+                    ],
+                ]
+            );
+
+            $element->add_control(
+                'eit_copy_from_reference',
+                [
+                    'type' => \Elementor\Controls_Manager::RAW_HTML,
+                    'raw' => '<button type="button" class="elementor-button elementor-button-default eit-copy-reference-button" data-control-name="' . $text_control_name . '">
+                        <span class="elementor-button-content-wrapper">
+                            <span class="elementor-button-text">' . __( 'Kopier fra hovedsprog', 'elementor-inline-translate' ) . '</span>
+                        </span>
+                    </button>',
+                    'separator' => 'none',
+                    'content_classes' => 'eit-copy-reference-control',
+                ]
+            );
+        }
+
         $element->add_control(
             'eit_translate_button',
             [

@@ -128,6 +128,7 @@ final class Elementor_Inline_Translate {
 
         // AJAX handlers
         add_action( 'wp_ajax_eit_translate_text', [ $this, 'handle_translate_text_ajax' ] );
+        add_action( 'wp_ajax_eit_get_reference_text', [ $this, 'handle_get_reference_text_ajax' ] );
     }
 
     /**
@@ -163,6 +164,14 @@ final class Elementor_Inline_Translate {
     public function enqueue_editor_scripts() {
         error_log('EIT Debug: enqueue_editor_scripts called');
         
+        // Enqueue CSS
+        wp_enqueue_style(
+            'eit-editor-style',
+            EIT_PLUGIN_URL . 'assets/css/editor.css',
+            [],
+            self::VERSION
+        );
+        
         wp_enqueue_script(
             'eit-editor-script',
             EIT_PLUGIN_URL . 'assets/js/editor.js',
@@ -174,16 +183,23 @@ final class Elementor_Inline_Translate {
         // Gør AJAX URL og nonce tilgængelig for JavaScript
         wp_localize_script(
             'eit-editor-script',
-            'eitEditor', // Objektnavn i JavaScript
+            'eit_vars', // Ændret til eit_vars for konsistens med JavaScript
             [
                 'ajax_url' => admin_url( 'admin-ajax.php' ),
                 'nonce'    => wp_create_nonce( 'eit_translate_nonce' ),
+                'is_polylang_active' => $this->is_polylang_active(),
+                'is_translation' => $this->is_current_page_translation(),
+                'default_language' => $this->get_default_language(),
+                'current_language' => $this->get_current_language(),
+                'current_post_id' => get_the_ID(),
                 // Du kan tilføje oversættelige strenge her, hvis nødvendigt
                 'i18n'     => [
                     'translateButton' => __( 'Oversæt Tekst', 'elementor-inline-translate' ),
                     'selectLanguage'  => __( 'Vælg Sprog:', 'elementor-inline-translate' ),
                     'translating'     => __( 'Oversætter...', 'elementor-inline-translate' ),
                     'error'           => __( 'Fejl under oversættelse.', 'elementor-inline-translate' ),
+                    'referenceText'   => __( 'Reference (hovedsprog):', 'elementor-inline-translate' ),
+                    'copyFromReference' => __( 'Kopier fra hovedsprog', 'elementor-inline-translate' ),
                 ]
             ]
         );
@@ -324,6 +340,193 @@ final class Elementor_Inline_Translate {
         } else {
             wp_send_json_error( [ 'message' => __( 'Kunne ikke oversætte teksten.', 'elementor-inline-translate' ) ] );
         }
+    }
+
+    /**
+     * Tjekker om PolyLang er aktivt.
+     *
+     * @return bool
+     */
+    public function is_polylang_active() {
+        return function_exists('pll_default_language') && function_exists('pll_get_post');
+    }
+
+    /**
+     * Henter standardsproget fra PolyLang.
+     *
+     * @return string|false
+     */
+    public function get_default_language() {
+        if ( ! $this->is_polylang_active() ) {
+            return false;
+        }
+        return pll_default_language();
+    }
+
+    /**
+     * Henter det aktuelle sprog.
+     *
+     * @return string|false
+     */
+    public function get_current_language() {
+        if ( ! $this->is_polylang_active() ) {
+            return false;
+        }
+        return pll_current_language();
+    }
+
+    /**
+     * Tjekker om den aktuelle side er en oversættelse (ikke hovedsproget).
+     *
+     * @return bool
+     */
+    public function is_current_page_translation() {
+        if ( ! $this->is_polylang_active() ) {
+            return false;
+        }
+        
+        $current_lang = $this->get_current_language();
+        $default_lang = $this->get_default_language();
+        
+        return $current_lang && $default_lang && $current_lang !== $default_lang;
+    }
+
+    /**
+     * Finder hovedsprogets version af den aktuelle side.
+     *
+     * @param int $post_id Nuværende post ID.
+     * @return int|false Post ID for hovedsproget, eller false hvis ikke fundet.
+     */
+    public function get_default_language_post_id( $post_id ) {
+        if ( ! $this->is_polylang_active() ) {
+            return false;
+        }
+        
+        $default_lang = $this->get_default_language();
+        if ( ! $default_lang ) {
+            return false;
+        }
+        
+        return pll_get_post( $post_id, $default_lang );
+    }
+
+    /**
+     * Henter reference tekst fra hovedsprogets version af elementet.
+     *
+     * @since 1.0.0
+     * @access public
+     */
+    public function handle_get_reference_text_ajax() {
+        error_log('EIT Debug: handle_get_reference_text_ajax called');
+        
+        // Sikkerhedstjek (nonce)
+        check_ajax_referer( 'eit_translate_nonce', 'nonce' );
+
+        // Hent data fra AJAX anmodning
+        $element_id = isset( $_POST['element_id'] ) ? sanitize_text_field( $_POST['element_id'] ) : '';
+        $control_name = isset( $_POST['control_name'] ) ? sanitize_text_field( $_POST['control_name'] ) : '';
+        
+        // Få det nuværende post ID fra den globale variabel eller URL parameter
+        $current_post_id = 0;
+        if ( isset( $_POST['post_id'] ) && intval( $_POST['post_id'] ) > 0 ) {
+            $current_post_id = intval( $_POST['post_id'] );
+        } elseif ( isset( $_GET['post'] ) && intval( $_GET['post'] ) > 0 ) {
+            $current_post_id = intval( $_GET['post'] );
+        } elseif ( defined( 'ELEMENTOR_EDITING_MODE' ) && isset( $GLOBALS['post'] ) ) {
+            $current_post_id = $GLOBALS['post']->ID;
+        }
+
+        if ( empty( $element_id ) || empty( $control_name ) || empty( $current_post_id ) ) {
+            wp_send_json_error( [ 'message' => __( 'Manglende data til reference forespørgsel. Element ID: ' . $element_id . ', Control: ' . $control_name . ', Post ID: ' . $current_post_id, 'elementor-inline-translate' ) ] );
+            return;
+        }
+
+        // Tjek om PolyLang er aktivt
+        if ( ! $this->is_polylang_active() ) {
+            wp_send_json_error( [ 'message' => __( 'PolyLang er ikke aktivt.', 'elementor-inline-translate' ) ] );
+            return;
+        }
+
+        // Find hovedsprogets version af siden
+        $default_post_id = $this->get_default_language_post_id( $current_post_id );
+        if ( ! $default_post_id ) {
+            wp_send_json_error( [ 'message' => __( 'Kunne ikke finde hovedsprogets version af siden.', 'elementor-inline-translate' ) ] );
+            return;
+        }
+
+        error_log('EIT Debug: Default language post ID: ' . $default_post_id);
+
+        // Hent Elementor data fra hovedsprogets side
+        $default_elementor_data = get_post_meta( $default_post_id, '_elementor_data', true );
+        if ( empty( $default_elementor_data ) ) {
+            wp_send_json_error( [ 'message' => __( 'Kunne ikke finde Elementor data for hovedsproget.', 'elementor-inline-translate' ) ] );
+            return;
+        }
+
+        // Parse Elementor data
+        if ( is_string( $default_elementor_data ) ) {
+            $default_elementor_data = json_decode( $default_elementor_data, true );
+        }
+
+        if ( ! is_array( $default_elementor_data ) ) {
+            wp_send_json_error( [ 'message' => __( 'Ugyldig Elementor data format.', 'elementor-inline-translate' ) ] );
+            return;
+        }
+
+        // Find elementet med det matchende ID
+        $reference_text = $this->find_element_text_by_id( $default_elementor_data, $element_id, $control_name );
+        
+        if ( $reference_text === false ) {
+            wp_send_json_error( [ 'message' => __( 'Kunne ikke finde reference tekst for elementet.', 'elementor-inline-translate' ) ] );
+            return;
+        }
+
+        wp_send_json_success( [
+            'reference_text' => $reference_text,
+            'element_id' => $element_id,
+            'control_name' => $control_name,
+            'default_language' => $this->get_default_language(),
+            'default_post_id' => $default_post_id
+        ] );
+    }
+
+    /**
+     * Rekursivt søger gennem Elementor data for at finde et element med specifikt ID.
+     *
+     * @param array $elements Elementor data struktur.
+     * @param string $target_id Det element ID vi leder efter.
+     * @param string $control_name Det kontrolfelt navn vi vil hente tekst fra.
+     * @return string|false Reference teksten eller false hvis ikke fundet.
+     */
+    private function find_element_text_by_id( $elements, $target_id, $control_name ) {
+        if ( ! is_array( $elements ) ) {
+            return false;
+        }
+
+        foreach ( $elements as $element ) {
+            if ( ! is_array( $element ) ) {
+                continue;
+            }
+
+            // Tjek om dette element har det rigtige ID
+            if ( isset( $element['id'] ) && $element['id'] === $target_id ) {
+                // Find teksten i elementets settings
+                if ( isset( $element['settings'][ $control_name ] ) ) {
+                    error_log('EIT Debug: Found reference text: ' . $element['settings'][ $control_name ]);
+                    return $element['settings'][ $control_name ];
+                }
+            }
+
+            // Søg rekursivt i børne-elementer
+            if ( isset( $element['elements'] ) && is_array( $element['elements'] ) ) {
+                $result = $this->find_element_text_by_id( $element['elements'], $target_id, $control_name );
+                if ( $result !== false ) {
+                    return $result;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**

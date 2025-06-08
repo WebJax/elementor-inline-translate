@@ -1,0 +1,91 @@
+/* Elementor Inline Translate - Editor Styles */
+
+/* Reference text display styling */
+.eit-reference-field .elementor-control-input-wrapper textarea {
+    background-color: #f9f9f9 !important;
+    border: 1px solid #e1e1e1 !important;
+    color: #666 !important;
+    font-style: italic;
+    resize: none;
+}
+
+.eit-reference-field .elementor-control-input-wrapper textarea:focus {
+    box-shadow: none !important;
+    border-color: #e1e1e1 !important;
+}
+
+/* Copy from reference button styling */
+.eit-copy-reference-control .elementor-button {
+    background-color: #0073aa !important;
+    border-color: #0073aa !important;
+    color: white !important;
+    margin-bottom: 10px;
+    width: 100%;
+}
+
+.eit-copy-reference-control .elementor-button:hover {
+    background-color: #005a87 !important;
+    border-color: #005a87 !important;
+}
+
+/* Translate button styling */
+.eit-translate-control .elementor-button {
+    background-color: #00a32a !important;
+    border-color: #00a32a !important;
+    color: white !important;
+    width: 100%;
+}
+
+.eit-translate-control .elementor-button:hover {
+    background-color: #007e23 !important;
+    border-color: #007e23 !important;
+}
+
+/* Section styling */
+.elementor-control-eit_translate_button_section .elementor-control-title {
+    color: #0073aa;
+    font-weight: bold;
+    border-bottom: 1px solid #e1e1e1;
+    padding-bottom: 5px;
+    margin-bottom: 10px;
+}
+
+/* Loading state for buttons */
+.eit-translate-button.loading,
+.eit-copy-reference-button.loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.eit-translate-button.loading::after,
+.eit-copy-reference-button.loading::after {
+    content: " ⏳";
+}
+
+/* Reference text label styling */
+.elementor-control-eit_reference_text .elementor-control-title {
+    color: #666;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Success/error indicators */
+.eit-success-indicator {
+    color: #00a32a;
+    font-weight: bold;
+}
+
+.eit-error-indicator {
+    color: #d63638;
+    font-weight: bold;
+}
+
+/* Responsive adjustments for smaller panels */
+@media (max-width: 1200px) {
+    .eit-translate-control .elementor-button,
+    .eit-copy-reference-control .elementor-button {
+        font-size: 12px;
+        padding: 8px 12px;
+    }
+}

@@ -28,6 +28,8 @@ Dette plugin tilføjer oversættelsesfunktionalitet direkte til Elementor editor
 - 🛡️ Built-in sikkerhedsforanstaltninger og nonce verification
 - 📝 **HTML-formatering bevares** automatisk ved oversættelse af Text Editor widgets
 - ⚡ Real-time preview opdateringer med øjeblikkelig visuel feedback
+- 🔄 **PolyLang integration**: Automatisk reference tekst fra hovedsprog ved oversættelse
+- 📋 **Kopier fra reference**: Et-klik kopiering af tekst fra hovedsprogets version
 
 ## Krav
 
@@ -35,6 +37,7 @@ Dette plugin tilføjer oversættelsesfunktionalitet direkte til Elementor editor
 - Elementor 3.5.0 eller højere
 - PHP 7.4 eller højere
 - DeepL API nøgle (gratis eller Pro)
+- **Valgfrit**: PolyLang plugin for multilingual funktionalitet
 
 ## Installation
 
@@ -48,11 +51,14 @@ Dette plugin tilføjer oversættelsesfunktionalitet direkte til Elementor editor
 elementor-inline-translate/
 ├── elementor-inline-translate.php    # Hoved plugin fil
 ├── assets/
+│   ├── css/
+│   │   └── editor.css                # CSS styling til editor
 │   └── js/
 │       └── editor.js                 # JavaScript til Elementor editor
 ├── includes/
 │   └── class-elementor-integration.php # Elementor integration klasse
-└── README.md                         # Denne fil
+├── README.md                         # Denne fil
+└── TEST-GUIDE.md                     # Test scenarier guide
 ```
 
 ## Configuration
@@ -84,12 +90,31 @@ $api_url = 'https://api-free.deepl.com/v2/translate'; // For gratis
 
 ## Brug
 
+### Standard Oversættelse
 1. Åbn Elementor editoren
 2. Vælg en Heading, Text Editor eller Button widget
 3. I widget indstillingerne, find "Inline Oversættelse" sektionen
 4. Vælg dit ønskede målsprog fra dropdown menuen
 5. Klik "Start Oversættelse" knappen
 6. Teksten bliver automatisk oversat og opdateret i widget'en
+
+### PolyLang Integration (hvis PolyLang er aktivt)
+
+Når PolyLang plugin er aktivt og du arbejder med en oversættelsesside, vises ekstra funktionaliteter:
+
+#### Reference Tekst Visning
+- **Reference felt**: Viser automatisk teksten fra hovedsprogets version af samme element
+- **Kopier fra reference**: Et-klik knap til at kopiere reference teksten
+- **Automatisk indlæsning**: Reference tekst indlæses automatisk når du vælger et element
+
+#### Arbejdsflow med PolyLang
+1. Opret dit indhold på hovedsproget (f.eks. Dansk)
+2. Opret en oversættelse via PolyLang
+3. Åbn oversættelsen i Elementor editoren
+4. Vælg et element - reference tekst vises automatisk
+5. Brug enten:
+   - **"Kopier fra hovedsprog"** for at kopiere reference teksten direkte
+   - **"Start Oversættelse"** for automatisk DeepL oversættelse
 
 ### Understøttede Målsprog
 
@@ -195,6 +220,10 @@ For support eller spørgsmål, kontakt udvikleren gennem [plugin support kanaler
 - Support for Heading, Text Editor og Button widgets
 - DeepL API integration
 - Dansk, Tysk og Engelsk sprog support
+- **HTML formatering bevarelse** for Text Editor widgets
+- **PolyLang integration** med reference tekst og kopier-funktionalitet
+- Automatisk preview opdateringer
+- Omfattende fejlhåndtering og debug logging
 
 ---
 
