@@ -12,6 +12,8 @@ class Elementor_Inline_Translate_Integration {
         add_action( 'elementor/element/heading/section_title/before_section_end', [ $this, 'add_translate_button_to_widget' ], 10, 2 );
         // Eksempel: Teksteditor widget
         add_action( 'elementor/element/text-editor/section_editor/before_section_end', [ $this, 'add_translate_button_to_widget' ], 10, 2 );
+        // Eksempel: Button widget
+        add_action( 'elementor/element/button/section_button/before_section_end', [ $this, 'add_translate_button_to_widget' ], 10, 2 );
         // Du kan tilføje lignende hooks for andre widgets og sektioner.
         // Find de korrekte hooks ved at inspicere Elementors kode eller bruge `elementor/element/after_section_end` og tjekke `$section_id`.
     }
@@ -29,6 +31,8 @@ class Elementor_Inline_Translate_Integration {
             $text_control_name = 'title'; // For overskrift widget er det typisk 'title'
         } elseif ( 'text-editor' === $element->get_name() ) {
             $text_control_name = 'editor'; // For teksteditor er det typisk 'editor'
+        } elseif ( 'button' === $element->get_name() ) {
+            $text_control_name = 'text'; // For button widget er det typisk 'text'
         }
         // Tilføj flere 'else if' for andre widgets
 

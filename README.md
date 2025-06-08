@@ -1,6 +1,19 @@
 # Elementor Inline Oversættelse
 
-Et WordPress plugin der gør det muligt at oversætte tekst direkte i Elementor editoren ved hjælp af DeepL API.
+Et WordPress plugin der gør det muligt at oversætte tek### Understøttede Widgets
+
+- **Heading Widget** - Oversætter title feltet
+- **Text Editor Widget** - Oversætter editor indholdet **med bevarelse af HTML formatering**
+- **Button Widget** - Oversætter button teksten
+
+### HTML Formatering
+
+Text Editor widgets bevarer automatisk deres HTML formatering under oversættelse:
+
+- **Styling bevares**: Fed tekst, kursiv, understreg osv.
+- **Links bevares**: Alle links og deres attributter forbliver intakte
+- **Struktur bevares**: Lister, paragraffer og andre HTML elementer
+- **Intelligent tekstekstraktion**: Kun selve teksten oversættes, ikke HTML tagsrekte i Elementor editoren ved hjælp af DeepL API.
 
 ## Beskrivelse
 
@@ -13,6 +26,8 @@ Dette plugin tilføjer oversættelsesfunktionalitet direkte til Elementor editor
 - 🎯 Understøtter Heading, Text Editor og Button widgets
 - 🔧 Nem integration med eksisterende Elementor workflow
 - 🛡️ Built-in sikkerhedsforanstaltninger og nonce verification
+- 📝 **HTML-formatering bevares** automatisk ved oversættelse af Text Editor widgets
+- ⚡ Real-time preview opdateringer med øjeblikkelig visuel feedback
 
 ## Krav
 

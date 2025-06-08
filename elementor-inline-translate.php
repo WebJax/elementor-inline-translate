@@ -228,11 +228,10 @@ final class Elementor_Inline_Translate {
         check_ajax_referer( 'eit_translate_nonce', 'nonce' );
 
         // Hent data fra AJAX anmodning
-        $text_to_translate = isset( $_POST['text'] ) ? sanitize_textarea_field( wp_unslash( $_POST['text'] ) ) : '';
+        $text_to_translate = isset( $_POST['text'] ) ? wp_unslash( $_POST['text'] ) : '';
         $target_language   = isset( $_POST['target_lang'] ) ? sanitize_text_field( $_POST['target_lang'] ) : 'EN-US'; // Standard til engelsk
         $element_id        = isset( $_POST['element_id'] ) ? sanitize_text_field( $_POST['element_id'] ) : '';
         $control_name      = isset( $_POST['control_name'] ) ? sanitize_text_field( $_POST['control_name'] ) : '';
-
 
         if ( empty( $text_to_translate ) || empty( $target_language ) || empty($element_id) || empty($control_name) ) {
             wp_send_json_error( [ 'message' => __( 'Manglende data til oversættelse. text_to_translate: ' . $text_to_translate . ' target_language: ' . $target_language . ' element_id: ' . $element_id . ' control_name: ' . $control_name, 'elementor-inline-translate' ) ] );
@@ -254,6 +253,21 @@ final class Elementor_Inline_Translate {
             return;
         }
 
+        // Intelligent håndtering af HTML indhold
+        $original_html = $text_to_translate;
+        $text_for_translation = $text_to_translate;
+        $is_html_content = false;
+        
+        // Tjek om indholdet indeholder HTML tags (typisk for text-editor widgets)
+        if ( $control_name === 'editor' && ( strpos( $text_to_translate, '<' ) !== false || strpos( $text_to_translate, '&' ) !== false ) ) {
+            $is_html_content = true;
+            error_log('EIT Debug: Detected HTML content, preserving structure');
+            
+            // Ekstrahér ren tekst fra HTML for oversættelse
+            $text_for_translation = $this->extract_text_from_html( $text_to_translate );
+            error_log('EIT Debug: Extracted text for translation: ' . $text_for_translation);
+        }
+
         // DeepL API URL 
         // Hvis du bruger DeepL Pro, kan du ændre URL'en til 'https://api.deepl.com/v2/translate'
         // Hvis du bruger gratis versionen, skal du bruge 'https://api-free.deepl.com/v2/translate'
@@ -267,7 +281,7 @@ final class Elementor_Inline_Translate {
             'Content-Type'  => 'application/x-www-form-urlencoded',
             ],
             'body'      => [
-            'text'        => $text_to_translate,
+            'text'        => $text_for_translation, // Brug den ekstraherede tekst
             'target_lang' => $target_language,
             // 'source_lang' => 'DA', // Valgfrit: Angiv kildesprog hvis nødvendigt
             ],
@@ -295,6 +309,12 @@ final class Elementor_Inline_Translate {
 
         $translated_text = $data['translations'][0]['text'];
 
+        // Hvis det var HTML indhold, rekonstruer HTML strukturen med oversat tekst
+        if ( $is_html_content ) {
+            $translated_text = $this->reconstruct_html_with_translated_text( $original_html, $text_for_translation, $translated_text );
+            error_log('EIT Debug: Reconstructed HTML with translated text: ' . $translated_text);
+        }
+
         if ( $translated_text ) {
             wp_send_json_success( [
                 'translated_text' => $translated_text,
@@ -304,6 +324,107 @@ final class Elementor_Inline_Translate {
         } else {
             wp_send_json_error( [ 'message' => __( 'Kunne ikke oversætte teksten.', 'elementor-inline-translate' ) ] );
         }
+    }
+
+    /**
+     * Ekstraherer ren tekst fra HTML for oversættelse.
+     * Bevarer HTML strukturen og returnerer kun tekst-indholdet.
+     *
+     * @param string $html HTML indhold.
+     * @return string Ren tekst til oversættelse.
+     */
+    private function extract_text_from_html( $html ) {
+        // Brug WordPress' indbyggede funktion til at fjerne HTML tags
+        $text = wp_strip_all_tags( $html );
+        
+        // Decode HTML entities
+        $text = html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+        
+        // Trim whitespace
+        $text = trim( $text );
+        
+        return $text;
+    }
+
+    /**
+     * Rekonstruerer HTML med oversat tekst.
+     * Erstatter den originale tekst i HTML strukturen med den oversatte tekst.
+     *
+     * @param string $original_html Original HTML struktur.
+     * @param string $original_text Original ren tekst.
+     * @param string $translated_text Oversat tekst.
+     * @return string HTML med oversat indhold.
+     */
+    private function reconstruct_html_with_translated_text( $original_html, $original_text, $translated_text ) {
+        // Simpel tilgang: erstat den originale tekst med den oversatte tekst i HTML'en
+        // Dette fungerer for de fleste enkle tilfælde
+        
+        // Først prøv direkte erstatning hvis den originale tekst findes i HTML'en
+        if ( strpos( $original_html, $original_text ) !== false ) {
+            return str_replace( $original_text, $translated_text, $original_html );
+        }
+        
+        // Hvis direkte erstatning ikke virker, prøv en mere avanceret tilgang
+        // Ved hjælp af DOMDocument for at bevare HTML struktur
+        if ( class_exists( 'DOMDocument' ) ) {
+            $dom = new DOMDocument();
+            $dom->encoding = 'UTF-8';
+            
+            // Undgå warnings for dårligt formateret HTML
+            libxml_use_internal_errors( true );
+            
+            // Load HTML med UTF-8 encoding
+            $dom->loadHTML( '<?xml encoding="utf-8" ?>' . $original_html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD );
+            
+            // Find alle text nodes og erstat indholdet
+            $xpath = new DOMXPath( $dom );
+            $textNodes = $xpath->query( '//text()[normalize-space(.) != ""]' );
+            
+            $combined_text = '';
+            foreach ( $textNodes as $textNode ) {
+                $combined_text .= trim( $textNode->textContent ) . ' ';
+            }
+            $combined_text = trim( $combined_text );
+            
+            // Hvis den kombinerede tekst matcher den originale tekst
+            if ( $combined_text === $original_text || similar_text( $combined_text, $original_text ) > 0.8 ) {
+                // Erstat den første text node med den oversatte tekst
+                if ( $textNodes->length > 0 ) {
+                    $firstTextNode = $textNodes->item( 0 );
+                    $firstTextNode->textContent = $translated_text;
+                    
+                    // Fjern alle andre text nodes (undtagen den første)
+                    for ( $i = 1; $i < $textNodes->length; $i++ ) {
+                        $textNode = $textNodes->item( $i );
+                        if ( $textNode->parentNode ) {
+                            $textNode->parentNode->removeChild( $textNode );
+                        }
+                    }
+                }
+                
+                $result = $dom->saveHTML();
+                
+                // Ryd op XML-erklæringen
+                $result = preg_replace( '/^<\?xml[^>]*\?>/', '', $result );
+                
+                return $result;
+            }
+        }
+        
+        // Fallback: Hvis alt andet fejler, returner den oversatte tekst omgivet af original HTML tags
+        // Dette er en simpel tilgang til at bevare grundlæggende formatering
+        preg_match( '/^(<[^>]*>)/', $original_html, $start_matches );
+        preg_match( '/(<[^>]*>)$/', $original_html, $end_matches );
+        
+        $start_tag = isset( $start_matches[1] ) ? $start_matches[1] : '';
+        $end_tag = isset( $end_matches[1] ) ? $end_matches[1] : '';
+        
+        if ( ! empty( $start_tag ) && ! empty( $end_tag ) ) {
+            return $start_tag . $translated_text . $end_tag;
+        }
+        
+        // Som sidste udvej, returner bare den oversatte tekst
+        return $translated_text;
     }
 
 
