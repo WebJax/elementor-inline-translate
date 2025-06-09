@@ -330,6 +330,12 @@
             console.log('EIT Debug: Element ID:', elementId);
             console.log('EIT Debug: Control name:', textFieldKey);
             
+            // Get target language from widget settings
+            const elementSettings = elementor.getContainer(elementId).model.get('settings');
+            const targetLanguage = elementSettings.get('eit_target_language') || 'EN-GB';
+            
+            console.log('EIT Debug: Selected target language:', targetLanguage);
+            
             // Send AJAX request to translate the text
             jQuery.ajax({
                 url: ajaxUrl,
@@ -338,7 +344,7 @@
                     action: 'eit_translate_text',
                     nonce: nonce,
                     text: textToTranslate,
-                    target_lang: 'en', // Default to English, could be made configurable
+                    target_lang: targetLanguage,
                     element_id: elementId,
                     control_name: textFieldKey
                 },
@@ -1013,54 +1019,99 @@
 
         // Add bulk translation button to Elementor navigator
         function addBulkTranslationButton() {
+            console.log('EIT Debug: Attempting to add bulk translation button...');
+            
             try {
-                // Wait for navigator to be ready
-                setTimeout(function() {
-                    if (elementor && elementor.navigator && elementor.navigator.getLayout) {
-                        const navigatorLayout = elementor.navigator.getLayout();
-                        if (navigatorLayout && navigatorLayout.$el) {
+                // Multiple attempts with different timing
+                const attempts = [500, 1000, 2000, 3000];
+                
+                attempts.forEach((delay, index) => {
+                    setTimeout(function() {
+                        console.log('EIT Debug: Attempt', index + 1, 'to add bulk button after', delay, 'ms');
+                        
+                        // Try multiple selectors for different Elementor versions
+                        const possibleSelectors = [
+                            '#elementor-navigator',
+                            '.elementor-navigator',
+                            '#elementor-navigator__elements',
+                            '.elementor-navigator__elements'
+                        ];
+                        
+                        let navigatorEl = null;
+                        for (const selector of possibleSelectors) {
+                            navigatorEl = $(selector);
+                            if (navigatorEl.length > 0) {
+                                console.log('EIT Debug: Found navigator with selector:', selector);
+                                break;
+                            }
+                        }
+                        
+                        // Fallback: try accessing through elementor object
+                        if (!navigatorEl || navigatorEl.length === 0) {
+                            if (elementor && elementor.navigator) {
+                                try {
+                                    const navigatorLayout = elementor.navigator.getLayout();
+                                    if (navigatorLayout && navigatorLayout.$el) {
+                                        navigatorEl = navigatorLayout.$el;
+                                        console.log('EIT Debug: Found navigator through elementor object');
+                                    }
+                                } catch (e) {
+                                    console.log('EIT Debug: Could not access navigator through elementor object:', e.message);
+                                }
+                            }
+                        }
+                        
+                        if (navigatorEl && navigatorEl.length > 0) {
                             // Check if button already exists
-                            if (navigatorLayout.$el.find('.eit-bulk-translate-btn').length > 0) {
+                            if (navigatorEl.find('.eit-bulk-translate-btn').length > 0) {
+                                console.log('EIT Debug: Bulk button already exists, skipping...');
                                 return;
                             }
 
                             // Create bulk translation button
                             const bulkButton = $(`
-                                <div class="eit-bulk-translate-container" style="margin: 10px; padding: 10px; border-top: 1px solid #e1e1e1;">
-                                    <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #71d7f7;">Bulk Oversættelse</h4>
+                                <div class="eit-bulk-translate-container" style="margin: 10px; padding: 15px; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px;">
+                                    <h4 style="margin: 0 0 12px 0; font-size: 13px; color: #495057; font-weight: 600;">🌐 Bulk Oversættelse</h4>
                                     <div class="eit-bulk-controls">
-                                        <select class="eit-bulk-target-lang" style="width: 100%; margin-bottom: 10px;">
-                                            <option value="EN-GB">Engelsk</option>
-                                            <option value="DE">Tysk</option>
-                                            <option value="DA">Dansk</option>
+                                        <select class="eit-bulk-target-lang" style="width: 100%; margin-bottom: 10px; padding: 6px; border: 1px solid #ced4da; border-radius: 4px;">
+                                            <option value="DA">🇩🇰 Dansk</option>
+                                            <option value="DE">🇩🇪 Tysk</option>
+                                            <option value="EN-GB">🇬🇧 Engelsk</option>
+                                            <option value="FR">🇫🇷 Fransk</option>
+                                            <option value="ES">🇪🇸 Spansk</option>
                                         </select>
-                                        <button class="eit-bulk-translate-btn elementor-button" style="width: 100%; margin-bottom: 5px;">
-                                            <i class="eicon-globe"></i> Oversæt Hele Siden
+                                        <button class="eit-bulk-translate-btn" style="width: 100%; padding: 8px 12px; background: linear-gradient(45deg, #007cba, #00a0d2); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500; margin-bottom: 8px;">
+                                            <i class="eicon-globe" style="margin-right: 5px;"></i> Oversæt Hele Siden
                                         </button>
                                         <div class="eit-bulk-progress" style="display: none;">
-                                            <div class="eit-progress-bar" style="width: 100%; height: 20px; background: #f1f1f1; border-radius: 10px; overflow: hidden;">
-                                                <div class="eit-progress-fill" style="height: 100%; background: #71d7f7; width: 0%; transition: width 0.3s;"></div>
+                                            <div class="eit-progress-bar" style="width: 100%; height: 20px; background: #e9ecef; border-radius: 10px; overflow: hidden; margin-bottom: 5px;">
+                                                <div class="eit-progress-fill" style="height: 100%; background: linear-gradient(90deg, #007cba, #00a0d2); width: 0%; transition: width 0.3s;"></div>
                                             </div>
-                                            <div class="eit-progress-text" style="margin-top: 5px; font-size: 11px; text-align: center;">0/0 elementer</div>
+                                            <div class="eit-progress-text" style="font-size: 11px; text-align: center; color: #6c757d;">0/0 elementer</div>
                                         </div>
-                                        <div class="eit-bulk-status" style="font-size: 11px; margin-top: 5px; display: none;"></div>
+                                        <div class="eit-bulk-status" style="font-size: 11px; margin-top: 5px; display: none; padding: 5px; border-radius: 3px;"></div>
                                     </div>
                                 </div>
                             `);
 
                             // Insert button at the top of navigator
-                            navigatorLayout.$el.prepend(bulkButton);
+                            navigatorEl.prepend(bulkButton);
 
                             // Bind click event
                             bulkButton.find('.eit-bulk-translate-btn').on('click', function() {
                                 const targetLang = bulkButton.find('.eit-bulk-target-lang').val();
+                                console.log('EIT Debug: Starting bulk translation to:', targetLang);
                                 startBulkTranslation(targetLang);
                             });
 
-                            console.log('EIT Debug: Bulk translation button added to navigator');
+                            console.log('EIT Debug: Bulk translation button successfully added to navigator!');
+                            return; // Exit early on success
+                        } else {
+                            console.log('EIT Debug: Navigator element not found on attempt', index + 1);
                         }
-                    }
-                }, 2000);
+                    }, delay);
+                });
+                
             } catch (error) {
                 console.error('EIT Error: Failed to add bulk translation button:', error);
             }
@@ -1120,9 +1171,8 @@
                 data: {
                     action: 'eit_translate_page_bulk',
                     nonce: eit_vars.nonce,
-                    target_lang: targetLanguage,
-                    post_id: postId,
-                    exclude_elements: [] // Could be made configurable
+                    target_language: targetLanguage,
+                    page_id: postId
                 },
                 success: function(response) {
                     console.log('EIT Debug: Bulk translation response:', response);
@@ -1257,9 +1307,46 @@
             addBulkTranslationButton();
         });
 
+        // Initialize bulk translation when panel is ready
+        elementor.on('panel:loaded', function() {
+            console.log('EIT Debug: Panel loaded, trying bulk translation button');
+            addBulkTranslationButton();
+        });
+
+        // Alternative: Add bulk translation button to top bar
+        function addBulkTranslationToTopBar() {
+            console.log('EIT Debug: Attempting to add bulk translation to top bar...');
+            
+            setTimeout(function() {
+                const topBar = $('#elementor-panel-header-menu-button').parent();
+                if (topBar.length > 0 && topBar.find('.eit-bulk-translate-topbar').length === 0) {
+                    const bulkButton = $(`
+                        <div class="eit-bulk-translate-topbar" style="display: inline-block; margin-left: 10px;">
+                            <button class="eit-topbar-bulk-btn" style="background: linear-gradient(45deg, #007cba, #00a0d2); color: white; border: none; border-radius: 3px; padding: 6px 12px; cursor: pointer; font-size: 11px;" title="Bulk oversættelse">
+                                🌐 Bulk
+                            </button>
+                        </div>
+                    `);
+                    
+                    topBar.append(bulkButton);
+                    
+                    bulkButton.find('.eit-topbar-bulk-btn').on('click', function() {
+                        // Show a simple modal for language selection
+                        const language = prompt('Vælg målsprog:\\n\\nDA = Dansk\\nDE = Tysk\\nEN-GB = Engelsk\\nFR = Fransk\\nES = Spansk', 'DA');
+                        if (language) {
+                            startBulkTranslation(language);
+                        }
+                    });
+                    
+                    console.log('EIT Debug: Bulk translation button added to top bar');
+                }
+            }, 1000);
+        }
+
         // Also try to add it after a delay in case navigator is already loaded
         setTimeout(function() {
             addBulkTranslationButton();
+            addBulkTranslationToTopBar();
         }, 3000);
 
         // END BULK TRANSLATION FUNCTIONALITY
