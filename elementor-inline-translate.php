@@ -837,6 +837,7 @@ final class Elementor_Inline_Translate {
         // Get page data from Elementor
         $elementor_data = get_post_meta( $page_id, '_elementor_data', true );
         if ( empty( $elementor_data ) ) {
+            error_log('EIT Debug: No _elementor_data found for page ' . $page_id);
             wp_send_json_error( 'No Elementor data found for this page' );
         }
 
@@ -846,8 +847,12 @@ final class Elementor_Inline_Translate {
         }
 
         if ( ! is_array( $elementor_data ) ) {
+            error_log('EIT Debug: Invalid Elementor data format: ' . gettype( $elementor_data ));
             wp_send_json_error( 'Invalid Elementor data format' );
         }
+
+        error_log('EIT Debug: Elementor data structure: ' . print_r( array_keys( $elementor_data ), true ));
+        error_log('EIT Debug: Total top-level elements: ' . count( $elementor_data ));
 
         // Find all translatable elements
         $translatable_elements = $this->find_translatable_elements( $elementor_data );
@@ -914,10 +919,16 @@ final class Elementor_Inline_Translate {
     private function find_translatable_elements( $elements ) {
         $translatable = [];
 
-        foreach ( $elements as $element ) {
-            // Check if this element is translatable
-            if ( isset( $element['widgetType'] ) && in_array( $element['widgetType'], [ 'heading', 'text-editor', 'button' ] ) ) {
+        error_log('EIT Debug: find_translatable_elements called with ' . count( $elements ) . ' elements');
+
+        foreach ( $elements as $index => $element ) {
+            error_log('EIT Debug: Processing element ' . $index . ' - Type: ' . ( isset( $element['elType'] ) ? $element['elType'] : 'unknown' ) . ', WidgetType: ' . ( isset( $element['widgetType'] ) ? $element['widgetType'] : 'none' ));
+            
+            // Check if this element is translatable - must be a widget with supported widget type
+            if ( isset( $element['elType'] ) && $element['elType'] === 'widget' && 
+                 isset( $element['widgetType'] ) && in_array( $element['widgetType'], [ 'heading', 'text-editor', 'button', 'icon-box', 'image', 'swiper_carousel', 'divider' ] ) ) {
                 $text_content = $this->extract_text_from_element( $element );
+                error_log('EIT Debug: Found widget ' . $element['widgetType'] . ' with text: ' . substr( $text_content, 0, 50 ) . '...' );
                 if ( ! empty( $text_content ) ) {
                     $translatable[] = [
                         'id' => $element['id'],
@@ -925,16 +936,19 @@ final class Elementor_Inline_Translate {
                         'original_text' => $text_content,
                         'element_data' => $element
                     ];
+                    error_log('EIT Debug: Added translatable element: ' . $element['id'] . ' - ' . $element['widgetType']);
                 }
             }
 
             // Recursively check child elements
             if ( isset( $element['elements'] ) && is_array( $element['elements'] ) ) {
+                error_log('EIT Debug: Element has ' . count( $element['elements'] ) . ' child elements, checking recursively');
                 $child_translatable = $this->find_translatable_elements( $element['elements'] );
                 $translatable = array_merge( $translatable, $child_translatable );
             }
         }
 
+        error_log('EIT Debug: find_translatable_elements returning ' . count( $translatable ) . ' translatable elements');
         return $translatable;
     }
 
@@ -950,17 +964,68 @@ final class Elementor_Inline_Translate {
         $widget_type = $element['widgetType'];
         $settings = isset( $element['settings'] ) ? $element['settings'] : [];
 
+        error_log('EIT Debug: Extracting text from ' . $widget_type . ' widget. Available settings: ' . implode( ', ', array_keys( $settings ) ) );
+
         switch ( $widget_type ) {
             case 'heading':
-                return isset( $settings['title'] ) ? $settings['title'] : '';
+                $text = isset( $settings['title'] ) ? $settings['title'] : '';
+                error_log('EIT Debug: Heading text: ' . $text );
+                return $text;
             
             case 'text-editor':
-                return isset( $settings['editor'] ) ? wp_strip_all_tags( $settings['editor'] ) : '';
+                $text = isset( $settings['editor'] ) ? wp_strip_all_tags( $settings['editor'] ) : '';
+                error_log('EIT Debug: Text editor content: ' . substr( $text, 0, 100 ) . '...' );
+                return $text;
             
             case 'button':
-                return isset( $settings['text'] ) ? $settings['text'] : '';
+                $text = isset( $settings['text'] ) ? $settings['text'] : '';
+                error_log('EIT Debug: Button text: ' . $text );
+                return $text;
+                
+            case 'icon-box':
+                $title = isset( $settings['title_text'] ) ? $settings['title_text'] : '';
+                $description = isset( $settings['description_text'] ) ? $settings['description_text'] : '';
+                $text = trim( $title . ' ' . $description );
+                error_log('EIT Debug: Icon-box text: ' . $text );
+                return $text;
+                
+            case 'divider':
+                $text = isset( $settings['text'] ) ? $settings['text'] : '';
+                error_log('EIT Debug: Divider text: ' . $text );
+                return $text;
+                
+            case 'image':
+                // Skip images for now as they don't have translatable text content
+                error_log('EIT Debug: Skipping image widget (no text content)' );
+                return '';
+                
+            case 'swiper_carousel':
+                // Extract text from carousel slides
+                if ( isset( $settings['slides'] ) && is_array( $settings['slides'] ) ) {
+                    $slide_texts = [];
+                    foreach ( $settings['slides'] as $slide ) {
+                        $slide_text = '';
+                        if ( isset( $slide['slide_heading'] ) ) {
+                            $slide_text .= $slide['slide_heading'] . ' ';
+                        }
+                        if ( isset( $slide['slide_subheading'] ) ) {
+                            $slide_text .= $slide['slide_subheading'] . ' ';
+                        }
+                        if ( isset( $slide['slide_cta_text'] ) ) {
+                            $slide_text .= $slide['slide_cta_text'];
+                        }
+                        if ( ! empty( trim( $slide_text ) ) ) {
+                            $slide_texts[] = trim( $slide_text );
+                        }
+                    }
+                    $text = implode( ' | ', $slide_texts );
+                    error_log('EIT Debug: Carousel text: ' . substr( $text, 0, 100 ) . '...' );
+                    return $text;
+                }
+                return '';
             
             default:
+                error_log('EIT Debug: Unsupported widget type: ' . $widget_type );
                 return '';
         }
     }
@@ -994,6 +1059,19 @@ final class Elementor_Inline_Translate {
         }
 
         return false;
+    }
+
+    /**
+     * Core translation method that handles the actual DeepL API call
+     *
+     * @param string $text_to_translate The text to translate
+     * @param string $target_language The target language code
+     * @return string|false The translated text or false on failure
+     * @since 1.2.0
+     * @access private
+     */
+    public function translate_text( $text, $target_language ) {
+        return $this->core_translate_text( $text, $target_language );
     }
 
     /**
