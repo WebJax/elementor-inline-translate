@@ -13,7 +13,20 @@ Text Editor widgets bevarer automatisk deres HTML formatering under oversættels
 - **Styling bevares**: Fed tekst, kursiv, understreg osv.
 - **Links bevares**: Alle links og deres attributter forbliver intakte
 - **Struktur bevares**: Lister, paragraffer og andre HTML elementer
-- **Intelligent tekstekstraktion**: Kun selve teksten oversættes, ikke HTML tagsrekte i Elementor editoren ved hjælp af DeepL API.
+- **Intelligent tekstekstraktion**: Kun selve teksten oversættes, ikke HTML tags
+- **TinyMCE rendering**: Avanceret håndtering sikrer korrekt visning af HTML i visual editor mode
+
+#### TinyMCE Editor Forbedringer
+
+Pluginet inkluderer specialiseret håndtering af TinyMCE editorer:
+
+- **Visual Mode Support**: HTML indhold renderes korrekt i visual editor mode
+- **Mode Detection**: Automatisk skift til visual mode for optimal HTML visning  
+- **Event Synchronization**: Omfattende event triggering for model opdateringer
+- **Fallback Mechanism**: Automatisk fallback til textarea hvis TinyMCE fejler
+- **Initialization Handling**: Robust håndtering af editor initialization timing
+
+Se [TINYMCE-FIX.md](TINYMCE-FIX.md) for detaljerede tekniske oplysninger.rekte i Elementor editoren ved hjælp af DeepL API.
 
 ## Beskrivelse
 
@@ -224,6 +237,7 @@ For support eller spørgsmål, kontakt udvikleren gennem [plugin support kanaler
 - **PolyLang integration** med reference tekst og kopier-funktionalitet
 - Automatisk preview opdateringer
 - Omfattende fejlhåndtering og debug logging
+- **TinyMCE HTML rendering fix**: Løst problem hvor HTML-indhold vistes som rå tekst i visual editor mode
 
 ---
 

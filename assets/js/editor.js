@@ -5,6 +5,97 @@
     let isTranslating = false;
     let eventsBound = false;
 
+    // Helper function for TinyMCE content setting with proper HTML rendering
+    function setTinyMCEContent(editor, content, fallbackElement) {
+        return new Promise((resolve, reject) => {
+            try {
+                if (!editor) {
+                    // No editor available, use fallback
+                    if (fallbackElement && fallbackElement.length) {
+                        fallbackElement.val(content).trigger('input').trigger('change');
+                        console.log('EIT Debug: Used textarea fallback');
+                    }
+                    resolve();
+                    return;
+                }
+
+                // Function to actually set the content
+                const setContent = () => {
+                    try {
+                        // Set content with explicit HTML format
+                        editor.setContent(content, {format: 'html'});
+                        
+                        // Ensure editor is in visual mode for proper HTML rendering
+                        if (editor.isHidden()) {
+                            editor.show();
+                        }
+                        
+                        // Switch to visual mode if in text mode
+                        if (editor.settings && editor.settings.plugins && editor.settings.plugins.indexOf('quickbar') !== -1) {
+                            // For newer TinyMCE versions
+                            if (editor.mode && editor.mode.get() === 'text') {
+                                editor.mode.set('design');
+                            }
+                        }
+                        
+                        // Fire events to ensure proper model updates
+                        editor.fire('change');
+                        editor.fire('input');
+                        editor.fire('keyup');
+                        editor.fire('ExecCommand', {command: 'mceInsertContent', value: ''});
+                        
+                        // Save to underlying textarea
+                        editor.save();
+                        
+                        // Force a re-render by triggering model change
+                        setTimeout(() => {
+                            editor.fire('change');
+                        }, 100);
+                        
+                        console.log('EIT Debug: Successfully updated TinyMCE content with HTML rendering');
+                        resolve();
+                    } catch (error) {
+                        console.error('EIT Error: Failed to set TinyMCE content:', error);
+                        reject(error);
+                    }
+                };
+
+                // Check if editor is ready
+                if (editor.initialized && !editor.removed) {
+                    setContent();
+                } else if (!editor.removed) {
+                    // Wait for editor to initialize
+                    const initHandler = () => {
+                        editor.off('init', initHandler);
+                        setContent();
+                    };
+                    editor.on('init', initHandler);
+                    
+                    // Timeout fallback
+                    setTimeout(() => {
+                        if (!editor.initialized) {
+                            console.warn('EIT Warning: TinyMCE init timeout, using fallback');
+                            if (fallbackElement && fallbackElement.length) {
+                                fallbackElement.val(content).trigger('input').trigger('change');
+                            }
+                            resolve();
+                        }
+                    }, 3000);
+                } else {
+                    // Editor is removed, use fallback
+                    if (fallbackElement && fallbackElement.length) {
+                        fallbackElement.val(content).trigger('input').trigger('change');
+                        console.log('EIT Debug: Editor removed, used textarea fallback');
+                    }
+                    resolve();
+                }
+            } catch (error) {
+                console.error('EIT Error: TinyMCE content setting failed:', error);
+                reject(error);
+            }
+        });
+    }
+
     $(window).on('elementor:init', function() {
         console.log('EIT Debug: Elementor init event detected');
         
@@ -328,17 +419,16 @@
                                                             // For TinyMCE editors
                                                             if (textFieldKey === 'editor' && window.tinymce) {
                                                                 const editorId = input.attr('id');
-                                                                if (editorId && window.tinymce.get(editorId)) {
-                                                                    // Set HTML content properly in TinyMCE
-                                                                    window.tinymce.get(editorId).setContent(response.data.translated_text);
-                                                                    // Also trigger change event to ensure model updates
-                                                                    window.tinymce.get(editorId).fire('change');
-                                                                    console.log('EIT Debug: Updated TinyMCE editor content with HTML');
-                                                                } else {
-                                                                    // Fallback: update textarea directly if TinyMCE not available
-                                                                    input.val(response.data.translated_text).trigger('input').trigger('change');
-                                                                    console.log('EIT Debug: Updated textarea directly as TinyMCE fallback');
-                                                                }
+                                                                const editor = editorId ? window.tinymce.get(editorId) : null;
+                                                                
+                                                                setTinyMCEContent(editor, response.data.translated_text, input)
+                                                                    .then(() => {
+                                                                        console.log('EIT Debug: TinyMCE content updated successfully');
+                                                                    })
+                                                                    .catch((error) => {
+                                                                        console.error('EIT Error: TinyMCE update failed, using fallback:', error);
+                                                                        input.val(response.data.translated_text).trigger('input').trigger('change');
+                                                                    });
                                                             } else {
                                                                 // For regular inputs
                                                                 input.val(response.data.translated_text).trigger('input').trigger('change');
@@ -744,14 +834,16 @@
                                             // For TinyMCE editors
                                             if (controlName === 'editor' && window.tinymce) {
                                                 const editorId = input.attr('id');
-                                                if (editorId && window.tinymce.get(editorId)) {
-                                                    window.tinymce.get(editorId).setContent(text);
-                                                    window.tinymce.get(editorId).fire('change');
-                                                    console.log('EIT Debug: Updated TinyMCE editor content');
-                                                } else {
-                                                    input.val(text).trigger('input').trigger('change');
-                                                    console.log('EIT Debug: Updated textarea directly as TinyMCE fallback');
-                                                }
+                                                const editor = editorId ? window.tinymce.get(editorId) : null;
+                                                
+                                                setTinyMCEContent(editor, text, input)
+                                                    .then(() => {
+                                                        console.log('EIT Debug: TinyMCE reference content updated successfully');
+                                                    })
+                                                    .catch((error) => {
+                                                        console.error('EIT Error: TinyMCE reference copy failed, using fallback:', error);
+                                                        input.val(text).trigger('input').trigger('change');
+                                                    });
                                             } else {
                                                 // For regular inputs
                                                 input.val(text).trigger('input').trigger('change');
