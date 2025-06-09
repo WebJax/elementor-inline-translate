@@ -1,8 +1,8 @@
 # Elementor Inline Oversættelse - Status & Changelog
 
-**Plugin Version:** 1.0.0  
-**Sidste opdatering:** 8. juni 2025  
-**Status:** ✅ Komplet - Alle kritiske problemer løst
+**Plugin Version:** 1.1.0  
+**Sidste opdatering:** 9. juni 2025  
+**Status:** ✅ Komplet med Avanceret HTML Preservation - Production Ready
 
 ## 🎯 Projekt Mål
 
@@ -18,11 +18,13 @@ Skabe et omfattende Elementor WordPress plugin kaldet "Elementor Inline Oversæt
 - ✅ **Multi-language Support**: Dansk, Tysk og Engelsk som målsprog
 
 ### 2. Avancerede Features
-- ✅ **HTML Formatering Bevarelse**: Intelligent bevarelse af HTML struktur og styling
+- ✅ **Advanced HTML Protection System**: Revolutionær separator-baseret HTML preservation
+- ✅ **DeepL Corruption Prevention**: Intelligent håndtering af DeepL API's HTML merging behavior
 - ✅ **Real-time Preview**: Øjeblikkelig visuel opdatering af preview
 - ✅ **PolyLang Integration**: Fuld integration med PolyLang multilingual plugin
 - ✅ **Reference Text System**: Automatisk visning af tekst fra hovedsprog
 - ✅ **Copy from Reference**: Et-klik kopiering fra hovedsprog
+- ✅ **Intelligent Text Reconstruction**: Multiple fallback algoritmer for tekst rekonstruktion
 
 ### 3. Tekniske Forbedringer
 - ✅ **JavaScript Error Fixes**: Løst alle kritiske JavaScript console fejl
@@ -57,13 +59,14 @@ Skabe et omfattende Elementor WordPress plugin kaldet "Elementor Inline Oversæt
 - Øjeblikkelig visuel feedback i editoren
 
 ### Problem 3: HTML Formatering Tab ✅
-**Problem**: HTML-formatering gik tabt under oversættelse.
+**Problem**: HTML-formatering gik tabt under oversættelse, specielt DeepL API's tendens til at slå HTML listeemner sammen.
 
 **Løsning**:
-- Server-side intelligent HTML content detection
-- Tekst extraktion fra HTML før oversættelse  
-- HTML struktur rekonstruktion med oversat tekst
-- Avanceret DOMDocument-baseret processing
+- **Separator-baseret HTML preservation**: Implementeret `|EIT_SEPARATOR|` system
+- **DOMDocument-baseret parsing**: Intelligent HTML struktur analyse
+- **Element boundary tracking**: Bevarer whitespace og spacing information
+- **Multiple fallback algoritmer**: Intelligent splitting når DeepL fjerner separatorer
+- **Tekst rekonstruktion**: Word-based og sentence-based splitting strategier
 
 ### Problem 4: TinyMCE HTML Rendering ✅
 **Problem**: Oversat HTML vistes som rå tekst i stedet for formateret indhold i TinyMCE visual editor.
@@ -100,13 +103,30 @@ function setTinyMCEContent(editor, content, fallbackElement) {
 - Intelligent post relationship handling
 - Comprehensive error handling for multilingual scenarios
 
-### HTML Preservation System
+### HTML Preservation System (Version 1.1.0)
 ```php
-// Server-side intelligent HTML detection og processing
-if ($this->contains_html($text)) {
-    $processed_text = $this->extract_text_from_html($text);
-    $translated_text = $this->translate_text($processed_text, $target_lang);
-    return $this->rebuild_html_with_translated_text($text, $translated_text);
+// Avanceret separator-baseret HTML preservation
+private function extract_text_from_html( $html ) {
+    // DOMDocument parsing med XPath queries
+    $xpath = new DOMXPath( $dom );
+    $textNodes = $xpath->query( '//text()[normalize-space(.) != ""]' );
+    
+    // Kombinér tekst med separatorer for struktur bevarelse
+    $combined_text = implode( ' |EIT_SEPARATOR| ', $text_parts );
+    $this->stored_element_boundaries = $element_boundaries;
+    
+    return $combined_text;
+}
+
+// Intelligent rekonstruktion med multiple fallback strategier
+private function reconstruct_html_with_translated_text( $original_html, $original_text, $translated_text ) {
+    // Separator-baseret splitting med fallback til intelligent text parsing
+    if ( strpos( $translated_text, '|EIT_SEPARATOR|' ) !== false ) {
+        $translated_parts = explode( '|EIT_SEPARATOR|', $translated_text );
+    } else {
+        // Fallback: sentence-based og word-based splitting
+        $translated_parts = $this->intelligent_text_splitting( $translated_text, $expected_count );
+    }
 }
 ```
 

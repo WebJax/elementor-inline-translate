@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Elementor Inline Oversættelse
  * Description: Et simpelt plugin til at demonstrere inline oversættelse i Elementor editoren.
- * Version: 1.0.0
+ * Version: 1.1.0
  * Author: Jaxweb
  * Text Domain: elementor-inline-translate
  * Domain Path: /languages
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit; // Exit if accessed directly.
 }
 
-define( 'EIT_PLUGIN_VERSION', '0.1.0' );
+define( 'EIT_PLUGIN_VERSION', '1.1.0' );
 define( 'EIT_PLUGIN_PATH', plugin_dir_path( __FILE__ ) );
 define( 'EIT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
@@ -56,6 +56,15 @@ final class Elementor_Inline_Translate {
      * @var Elementor_Inline_Translate
      */
     private static $_instance = null;
+
+    /**
+     * Gemmer element boundaries for HTML rekonstruktion.
+     *
+     * @since 1.0.0
+     * @access private
+     * @var array
+     */
+    private $stored_element_boundaries = array();
 
     /**
      * Sikrer kun én instans af klassen.
@@ -530,45 +539,224 @@ final class Elementor_Inline_Translate {
     }
 
     /**
-     * Ekstraherer ren tekst fra HTML for oversættelse.
-     * Bevarer HTML strukturen og returnerer kun tekst-indholdet.
+     * Ekstraherer tekst fra HTML til oversættelse mens strukturen bevares.
+     * I stedet for at fjerne alle tags, parser vi HTML og oversætter element for element.
      *
      * @param string $html HTML indhold.
      * @return string Ren tekst til oversættelse.
      */
     private function extract_text_from_html( $html ) {
-        // Brug WordPress' indbyggede funktion til at fjerne HTML tags
-        $text = wp_strip_all_tags( $html );
+        // Hvis DOMDocument ikke er tilgængelig, fallback til simpel text extraction
+        if ( ! class_exists( 'DOMDocument' ) ) {
+            $text = wp_strip_all_tags( $html );
+            $text = html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+            return trim( $text );
+        }
+
+        // Parse HTML og saml tekst fra individuelle elementer
+        $dom = new DOMDocument();
+        $dom->encoding = 'UTF-8';
         
-        // Decode HTML entities
-        $text = html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+        // Undgå warnings for dårligt formateret HTML
+        libxml_use_internal_errors( true );
         
-        // Trim whitespace
-        $text = trim( $text );
+        // Load HTML med UTF-8 encoding
+        $success = $dom->loadHTML( '<?xml encoding="utf-8" ?>' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD );
         
-        return $text;
+        if ( ! $success ) {
+            // Fallback hvis HTML parsing fejler
+            $text = wp_strip_all_tags( $html );
+            $text = html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+            return trim( $text );
+        }
+        
+        // Find alle text nodes og sammel dem med separatorer for at bevare struktur
+        $xpath = new DOMXPath( $dom );
+        $textNodes = $xpath->query( '//text()[normalize-space(.) != ""]' );
+        
+        $text_parts = array();
+        $element_boundaries = array(); // For at tracke hvor hvert element starter/slutter
+        
+        foreach ( $textNodes as $index => $textNode ) {
+            $content = trim( $textNode->textContent );
+            if ( ! empty( $content ) ) {
+                $parent_tag = $textNode->parentNode->nodeName;
+                
+                // Preserve whitespace information for reconstruction
+                $prev_sibling = $textNode->previousSibling;
+                $next_sibling = $textNode->nextSibling;
+                $has_space_before = ( $prev_sibling && $prev_sibling->nodeType === XML_TEXT_NODE && preg_match('/\s$/', $prev_sibling->textContent ) );
+                $has_space_after = ( $next_sibling && $next_sibling->nodeType === XML_TEXT_NODE && preg_match('/^\s/', $next_sibling->textContent ) );
+                
+                $text_parts[] = $content;
+                $element_boundaries[] = array(
+                    'text' => $content,
+                    'parent' => $parent_tag,
+                    'index' => $index,
+                    'has_space_before' => $has_space_before,
+                    'has_space_after' => $has_space_after,
+                    'original_node' => $textNode
+                );
+            }
+        }
+        
+        // Join med special separatorer så vi kan splitte dem igen efter oversættelse
+        $combined_text = implode( ' |EIT_SEPARATOR| ', $text_parts );
+        
+        // Store element boundaries til rekonstruktion
+        $this->stored_element_boundaries = $element_boundaries;
+        
+        error_log('EIT Debug: Extracted ' . count($text_parts) . ' text parts with separators');
+        return $combined_text;
     }
 
     /**
      * Rekonstruerer HTML med oversat tekst.
-     * Erstatter den originale tekst i HTML strukturen med den oversatte tekst.
+     * Bruger element boundaries og separatorer til at bevare HTML struktur.
      *
      * @param string $original_html Original HTML struktur.
-     * @param string $original_text Original ren tekst.
+     * @param string $original_text Original ren tekst (med separatorer).
      * @param string $translated_text Oversat tekst.
      * @return string HTML med oversat indhold.
      */
     private function reconstruct_html_with_translated_text( $original_html, $original_text, $translated_text ) {
-        // Simpel tilgang: erstat den originale tekst med den oversatte tekst i HTML'en
-        // Dette fungerer for de fleste enkle tilfælde
+        error_log('EIT Debug: Reconstruct - Original text: ' . $original_text);
+        error_log('EIT Debug: Reconstruct - Translated text: ' . $translated_text);
         
-        // Først prøv direkte erstatning hvis den originale tekst findes i HTML'en
+        // Tjek om vi har separatorer i den originale tekst
+        if ( strpos( $original_text, '|EIT_SEPARATOR|' ) !== false && ! empty( $this->stored_element_boundaries ) ) {
+            error_log('EIT Debug: Using separator-based reconstruction');
+            
+            // Split den oversatte tekst på de samme separatorer
+            $translated_parts = array();
+            $original_parts = explode( '|EIT_SEPARATOR|', $original_text );
+            $expected_count = count( $original_parts );
+            
+            // Først prøv eksakt separator match
+            if ( strpos( $translated_text, '|EIT_SEPARATOR|' ) !== false ) {
+                $translated_parts = explode( '|EIT_SEPARATOR|', $translated_text );
+                error_log('EIT Debug: Found exact separators in translation');
+            } 
+            // Hvis separatorerne er væk, prøv intelligent splitting
+            else {
+                error_log('EIT Debug: Separators missing, using intelligent splitting');
+                
+                // Method 1: Try splitting on sentence boundaries
+                if ( $expected_count > 1 ) {
+                    $translated_parts = preg_split('/(?<=[.!?])\s+/', $translated_text, $expected_count);
+                    
+                    // Method 2: If sentence splitting doesn't work, try word-based estimation
+                    if ( count( $translated_parts ) !== $expected_count ) {
+                        $words = explode( ' ', $translated_text );
+                        $words_per_part = max( 1, floor( count( $words ) / $expected_count ) );
+                        
+                        $translated_parts = array();
+                        for ( $i = 0; $i < $expected_count; $i++ ) {
+                            $start = $i * $words_per_part;
+                            if ( $i === $expected_count - 1 ) {
+                                // Last part gets remaining words
+                                $part_words = array_slice( $words, $start );
+                            } else {
+                                $part_words = array_slice( $words, $start, $words_per_part );
+                            }
+                            $translated_parts[] = implode( ' ', $part_words );
+                        }
+                        error_log('EIT Debug: Used word-based splitting into ' . count($translated_parts) . ' parts');
+                    }
+                } else {
+                    $translated_parts = array( $translated_text );
+                }
+            }
+            
+            // Ensure we have the right number of parts
+            if ( count( $translated_parts ) !== $expected_count ) {
+                error_log('EIT Debug: Part count mismatch, using fallback approach');
+                
+                // If we have too few parts, pad with empty strings
+                while ( count( $translated_parts ) < $expected_count ) {
+                    $translated_parts[] = '';
+                }
+                
+                // If we have too many parts, merge the last ones
+                while ( count( $translated_parts ) > $expected_count ) {
+                    $last = array_pop( $translated_parts );
+                    $translated_parts[ count( $translated_parts ) - 1 ] .= ' ' . $last;
+                }
+            }
+            
+            error_log('EIT Debug: Split translation into ' . count($translated_parts) . ' parts (expected ' . $expected_count . ')');
+            
+            // Brug DOMDocument til at rekonstruere HTML med de oversatte dele
+            if ( class_exists( 'DOMDocument' ) && ! empty( $translated_parts ) ) {
+                $dom = new DOMDocument();
+                $dom->encoding = 'UTF-8';
+                
+                // Undgå warnings for dårligt formateret HTML
+                libxml_use_internal_errors( true );
+                
+                // Load HTML med UTF-8 encoding
+                $success = $dom->loadHTML( '<?xml encoding="utf-8" ?>' . $original_html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD );
+                
+                if ( $success ) {
+                    // Find alle text nodes
+                    $xpath = new DOMXPath( $dom );
+                    $textNodes = $xpath->query( '//text()[normalize-space(.) != ""]' );
+                    
+                    // Erstat hver text node med den tilsvarende oversatte del
+                    $part_index = 0;
+                    foreach ( $textNodes as $textNode ) {
+                        if ( $part_index < count( $translated_parts ) ) {
+                            $translated_part = trim( $translated_parts[ $part_index ] );
+                            if ( ! empty( $translated_part ) ) {
+                                // Preserve spacing based on stored boundaries
+                                if ( isset( $this->stored_element_boundaries[ $part_index ] ) ) {
+                                    $boundary = $this->stored_element_boundaries[ $part_index ];
+                                    
+                                    // Add appropriate spacing
+                                    $spacing_before = $boundary['has_space_before'] ? ' ' : '';
+                                    $spacing_after = $boundary['has_space_after'] ? ' ' : '';
+                                    
+                                    // For inline elements, we typically need space around them
+                                    if ( in_array( $boundary['parent'], array( 'strong', 'em', 'b', 'i', 'a', 'span' ) ) ) {
+                                        $final_text = $spacing_before . $translated_part . $spacing_after;
+                                    } else {
+                                        $final_text = $translated_part;
+                                    }
+                                    
+                                    $textNode->textContent = $final_text;
+                                } else {
+                                    $textNode->textContent = $translated_part;
+                                }
+                                error_log('EIT Debug: Replaced text node with: ' . $translated_part);
+                            }
+                            $part_index++;
+                        }
+                    }
+                    
+                    $result = $dom->saveHTML();
+                    
+                    // Ryd op XML-erklæringen
+                    $result = preg_replace( '/^<\?xml[^>]*\?>/', '', $result );
+                    
+                    // Clean up extra whitespace that might have been introduced
+                    $result = preg_replace( '/\s+/', ' ', $result );
+                    $result = preg_replace( '/>\s+</', '><', $result );
+                    
+                    error_log('EIT Debug: Successfully reconstructed HTML: ' . $result);
+                    return $result;
+                }
+            }
+        }
+        
+        // Fallback til den gamle metode hvis separator-baseret rekonstruktion fejler
+        error_log('EIT Debug: Using fallback reconstruction method');
+        
+        // Simpel direkte erstatning
         if ( strpos( $original_html, $original_text ) !== false ) {
             return str_replace( $original_text, $translated_text, $original_html );
         }
         
-        // Hvis direkte erstatning ikke virker, prøv en mere avanceret tilgang
-        // Ved hjælp af DOMDocument for at bevare HTML struktur
+        // Avanceret DOM-baseret erstatning
         if ( class_exists( 'DOMDocument' ) ) {
             $dom = new DOMDocument();
             $dom->encoding = 'UTF-8';
@@ -583,14 +771,18 @@ final class Elementor_Inline_Translate {
             $xpath = new DOMXPath( $dom );
             $textNodes = $xpath->query( '//text()[normalize-space(.) != ""]' );
             
-            $combined_text = '';
+            // Sammensæt tekst for sammenligning
+            $combined_original = '';
             foreach ( $textNodes as $textNode ) {
-                $combined_text .= trim( $textNode->textContent ) . ' ';
+                $combined_original .= trim( $textNode->textContent ) . ' ';
             }
-            $combined_text = trim( $combined_text );
+            $combined_original = trim( $combined_original );
             
-            // Hvis den kombinerede tekst matcher den originale tekst
-            if ( $combined_text === $original_text || similar_text( $combined_text, $original_text ) > 0.8 ) {
+            // Fjern separatorer fra original tekst for sammenligning
+            $clean_original = str_replace( ' |EIT_SEPARATOR| ', ' ', $original_text );
+            
+            // Hvis teksterne matcher nogenlunde
+            if ( $combined_original === $clean_original || similar_text( $combined_original, $clean_original ) > 0.7 ) {
                 // Erstat den første text node med den oversatte tekst
                 if ( $textNodes->length > 0 ) {
                     $firstTextNode = $textNodes->item( 0 );
@@ -614,19 +806,8 @@ final class Elementor_Inline_Translate {
             }
         }
         
-        // Fallback: Hvis alt andet fejler, returner den oversatte tekst omgivet af original HTML tags
-        // Dette er en simpel tilgang til at bevare grundlæggende formatering
-        preg_match( '/^(<[^>]*>)/', $original_html, $start_matches );
-        preg_match( '/(<[^>]*>)$/', $original_html, $end_matches );
-        
-        $start_tag = isset( $start_matches[1] ) ? $start_matches[1] : '';
-        $end_tag = isset( $end_matches[1] ) ? $end_matches[1] : '';
-        
-        if ( ! empty( $start_tag ) && ! empty( $end_tag ) ) {
-            return $start_tag . $translated_text . $end_tag;
-        }
-        
         // Som sidste udvej, returner bare den oversatte tekst
+        error_log('EIT Debug: All reconstruction methods failed, returning plain text');
         return $translated_text;
     }
 
