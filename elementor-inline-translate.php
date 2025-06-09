@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: Elementor Inline Oversættelse
- * Description: Et simpelt plugin til at demonstrere inline oversættelse i Elementor editoren.
- * Version: 1.1.0
+ * Description: Et simpelt plugin til at demonstrere inline oversættelse i Elementor editoren med bulk oversættelse.
+ * Version: 1.2.0
  * Author: Jaxweb
  * Text Domain: elementor-inline-translate
  * Domain Path: /languages
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit; // Exit if accessed directly.
 }
 
-define( 'EIT_PLUGIN_VERSION', '1.1.0' );
+define( 'EIT_PLUGIN_VERSION', '1.2.0' );
 define( 'EIT_PLUGIN_PATH', plugin_dir_path( __FILE__ ) );
 define( 'EIT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
@@ -138,6 +138,7 @@ final class Elementor_Inline_Translate {
         // AJAX handlers
         add_action( 'wp_ajax_eit_translate_text', [ $this, 'handle_translate_text_ajax' ] );
         add_action( 'wp_ajax_eit_get_reference_text', [ $this, 'handle_get_reference_text_ajax' ] );
+        add_action( 'wp_ajax_eit_translate_page_bulk', [ $this, 'handle_translate_page_bulk_ajax' ] );
     }
 
     /**
@@ -808,6 +809,272 @@ final class Elementor_Inline_Translate {
         
         // Som sidste udvej, returner bare den oversatte tekst
         error_log('EIT Debug: All reconstruction methods failed, returning plain text');
+        return $translated_text;
+    }
+
+    /**
+     * Handle bulk translation AJAX request
+     *
+     * @since 1.2.0
+     * @access public
+     */
+    public function handle_translate_page_bulk_ajax() {
+        // Verify nonce for security
+        if ( ! wp_verify_nonce( $_POST['nonce'], 'eit_translate_nonce' ) ) {
+            wp_die( 'Nonce verification failed' );
+        }
+
+        // Check required parameters
+        if ( ! isset( $_POST['page_id'] ) || ! isset( $_POST['target_language'] ) ) {
+            wp_send_json_error( 'Missing required parameters' );
+        }
+
+        $page_id = intval( $_POST['page_id'] );
+        $target_language = sanitize_text_field( $_POST['target_language'] );
+        
+        error_log('EIT Debug: Starting bulk translation for page ' . $page_id . ' to ' . $target_language);
+
+        // Get page data from Elementor
+        $elementor_data = get_post_meta( $page_id, '_elementor_data', true );
+        if ( empty( $elementor_data ) ) {
+            wp_send_json_error( 'No Elementor data found for this page' );
+        }
+
+        // Parse JSON data if it's a string
+        if ( is_string( $elementor_data ) ) {
+            $elementor_data = json_decode( $elementor_data, true );
+        }
+
+        if ( ! is_array( $elementor_data ) ) {
+            wp_send_json_error( 'Invalid Elementor data format' );
+        }
+
+        // Find all translatable elements
+        $translatable_elements = $this->find_translatable_elements( $elementor_data );
+        error_log('EIT Debug: Found ' . count( $translatable_elements ) . ' translatable elements');
+
+        $results = [];
+        $success_count = 0;
+        $error_count = 0;
+
+        // Translate each element
+        foreach ( $translatable_elements as $element ) {
+            try {
+                $translated_element = $this->translate_single_element( $element, $target_language );
+                if ( $translated_element ) {
+                    $results[] = [
+                        'id' => $element['id'],
+                        'type' => $element['widgetType'],
+                        'original' => $element['original_text'],
+                        'translated' => $translated_element['translated_text'],
+                        'success' => true
+                    ];
+                    $success_count++;
+                } else {
+                    $results[] = [
+                        'id' => $element['id'],
+                        'type' => $element['widgetType'],
+                        'original' => $element['original_text'],
+                        'error' => 'Translation failed',
+                        'success' => false
+                    ];
+                    $error_count++;
+                }
+            } catch ( Exception $e ) {
+                error_log('EIT Debug: Translation error for element ' . $element['id'] . ': ' . $e->getMessage());
+                $results[] = [
+                    'id' => $element['id'],
+                    'type' => $element['widgetType'],
+                    'original' => $element['original_text'],
+                    'error' => $e->getMessage(),
+                    'success' => false
+                ];
+                $error_count++;
+            }
+        }
+
+        // Return comprehensive results
+        wp_send_json_success( [
+            'total_elements' => count( $translatable_elements ),
+            'success_count' => $success_count,
+            'error_count' => $error_count,
+            'results' => $results,
+            'target_language' => $target_language
+        ] );
+    }
+
+    /**
+     * Recursively find all translatable elements in Elementor data
+     *
+     * @param array $elements The Elementor data structure
+     * @return array Array of translatable elements
+     * @since 1.2.0
+     * @access private
+     */
+    private function find_translatable_elements( $elements ) {
+        $translatable = [];
+
+        foreach ( $elements as $element ) {
+            // Check if this element is translatable
+            if ( isset( $element['widgetType'] ) && in_array( $element['widgetType'], [ 'heading', 'text-editor', 'button' ] ) ) {
+                $text_content = $this->extract_text_from_element( $element );
+                if ( ! empty( $text_content ) ) {
+                    $translatable[] = [
+                        'id' => $element['id'],
+                        'widgetType' => $element['widgetType'],
+                        'original_text' => $text_content,
+                        'element_data' => $element
+                    ];
+                }
+            }
+
+            // Recursively check child elements
+            if ( isset( $element['elements'] ) && is_array( $element['elements'] ) ) {
+                $child_translatable = $this->find_translatable_elements( $element['elements'] );
+                $translatable = array_merge( $translatable, $child_translatable );
+            }
+        }
+
+        return $translatable;
+    }
+
+    /**
+     * Extract text content from an element based on its widget type
+     *
+     * @param array $element The element data
+     * @return string The extracted text content
+     * @since 1.2.0
+     * @access private
+     */
+    private function extract_text_from_element( $element ) {
+        $widget_type = $element['widgetType'];
+        $settings = isset( $element['settings'] ) ? $element['settings'] : [];
+
+        switch ( $widget_type ) {
+            case 'heading':
+                return isset( $settings['title'] ) ? $settings['title'] : '';
+            
+            case 'text-editor':
+                return isset( $settings['editor'] ) ? wp_strip_all_tags( $settings['editor'] ) : '';
+            
+            case 'button':
+                return isset( $settings['text'] ) ? $settings['text'] : '';
+            
+            default:
+                return '';
+        }
+    }
+
+    /**
+     * Translate a single element using the existing translation logic
+     *
+     * @param array $element The element to translate
+     * @param string $target_language The target language code
+     * @return array|false The translation result or false on failure
+     * @since 1.2.0
+     * @access private
+     */
+    private function translate_single_element( $element, $target_language ) {
+        $original_text = $element['original_text'];
+        
+        if ( empty( $original_text ) ) {
+            return false;
+        }
+
+        // Use the core translation logic
+        $translated_text = $this->core_translate_text( $original_text, $target_language );
+        
+        if ( $translated_text && $translated_text !== $original_text ) {
+            return [
+                'id' => $element['id'],
+                'widgetType' => $element['widgetType'],
+                'original_text' => $original_text,
+                'translated_text' => $translated_text
+            ];
+        }
+
+        return false;
+    }
+
+    /**
+     * Core translation method that handles the actual DeepL API call
+     *
+     * @param string $text_to_translate The text to translate
+     * @param string $target_language The target language code
+     * @return string|false The translated text or false on failure
+     * @since 1.2.0
+     * @access private
+     */
+    private function core_translate_text( $text_to_translate, $target_language ) {
+        if ( empty( $text_to_translate ) || empty( $target_language ) ) {
+            return false;
+        }
+
+        // Define DeepL API key
+        if ( ! defined( 'EIT_DEEPL_API_KEY' ) ) {
+            define( 'EIT_DEEPL_API_KEY', '5b2070a2-59bc-4902-b009-c9ef94f845b5:fx' );
+        }
+
+        $api_key = EIT_DEEPL_API_KEY;
+
+        if ( empty( $api_key ) || $api_key === 'DIN_DEEPL_API_NØGLE' ) {
+            error_log('EIT Debug: DeepL API key not configured properly');
+            return false;
+        }
+
+        // Intelligent handling of HTML content
+        $original_html = $text_to_translate;
+        $text_for_translation = $text_to_translate;
+        $is_html_content = false;
+        
+        // Check if content contains HTML tags
+        if ( strpos( $text_to_translate, '<' ) !== false || strpos( $text_to_translate, '&' ) !== false ) {
+            $is_html_content = true;
+            error_log('EIT Debug: Detected HTML content, preserving structure');
+            
+            // Extract plain text from HTML for translation
+            $text_for_translation = $this->extract_text_from_html( $text_to_translate );
+            error_log('EIT Debug: Extracted text for translation: ' . $text_for_translation);
+        }
+
+        // DeepL API URL (using free version)
+        $api_url = 'https://api-free.deepl.com/v2/translate';
+
+        $response = wp_remote_post( $api_url, [
+            'method'    => 'POST',
+            'headers'   => [
+                'Authorization' => 'DeepL-Auth-Key ' . $api_key,
+                'Content-Type'  => 'application/x-www-form-urlencoded',
+            ],
+            'body'      => [
+                'text'        => $text_for_translation,
+                'target_lang' => $target_language,
+            ],
+            'timeout'   => 30,
+        ]);
+
+        if ( is_wp_error( $response ) ) {
+            error_log('EIT Debug: Error communicating with DeepL API: ' . $response->get_error_message());
+            return false;
+        }
+
+        $body = wp_remote_retrieve_body( $response );
+        $data = json_decode( $body, true );
+
+        if ( wp_remote_retrieve_response_code( $response ) !== 200 || ! isset( $data['translations'][0]['text'] ) ) {
+            $response_code = wp_remote_retrieve_response_code( $response );
+            error_log('EIT Debug: DeepL API error. Response code: ' . $response_code . ', Data: ' . print_r($data, true));
+            return false;
+        }
+
+        $translated_text = $data['translations'][0]['text'];
+
+        // If it was HTML content, reconstruct HTML structure with translated text
+        if ( $is_html_content ) {
+            $translated_text = $this->reconstruct_html_with_translated_text( $original_html, $text_for_translation, $translated_text );
+            error_log('EIT Debug: Reconstructed HTML with translated text: ' . $translated_text);
+        }
+
         return $translated_text;
     }
 

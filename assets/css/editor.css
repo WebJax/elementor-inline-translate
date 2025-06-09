@@ -50,24 +50,87 @@
     margin-bottom: 10px;
 }
 
-/* Loading state for buttons */
-.eit-translate-button.loading,
-.eit-copy-reference-button.loading {
-    opacity: 0.6;
-    pointer-events: none;
+/* Bulk translation container styling */
+.eit-bulk-translate-container {
+    background: #f8f9fa;
+    border-radius: 5px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
 }
 
-.eit-translate-button.loading::after,
-.eit-copy-reference-button.loading::after {
-    content: " ⏳";
+.eit-bulk-translate-container h4 {
+    display: flex;
+    align-items: center;
+    gap: 5px;
 }
 
-/* Reference text label styling */
-.elementor-control-eit_reference_text .elementor-control-title {
-    color: #666;
+.eit-bulk-translate-container h4:before {
+    content: "\e921"; /* Globe icon */
+    font-family: "eicons";
+    font-size: 14px;
+}
+
+/* Bulk translate button */
+.eit-bulk-translate-btn {
+    background: linear-gradient(135deg, #71d7f7 0%, #0ea5e9 100%) !important;
+    border: none !important;
+    color: white !important;
+    font-weight: 600 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.5px !important;
+    transition: all 0.3s ease !important;
+    border-radius: 5px !important;
+    padding: 8px 12px !important;
+    font-size: 12px !important;
+}
+
+.eit-bulk-translate-btn:hover {
+    background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%) !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 8px rgba(14, 165, 233, 0.3) !important;
+}
+
+.eit-bulk-translate-btn:disabled {
+    background: #ccc !important;
+    transform: none !important;
+    box-shadow: none !important;
+    cursor: not-allowed !important;
+}
+
+/* Language selector */
+.eit-bulk-target-lang {
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    padding: 5px 8px;
     font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    color: #333;
+}
+
+.eit-bulk-target-lang:focus {
+    border-color: #71d7f7;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(113, 215, 247, 0.2);
+}
+
+/* Progress bar styling */
+.eit-progress-bar {
+    background: #e5e7eb;
+    border: 1px solid #d1d5db;
+}
+
+.eit-progress-fill {
+    background: linear-gradient(90deg, #10b981, #059669);
+    animation: progressShine 2s infinite linear;
+}
+
+@keyframes progressShine {
+    0% { background-position: -200px 0; }
+    100% { background-position: 200px 0; }
+}
+
+.eit-progress-text {
+    font-weight: 500;
+    color: #374151;
 }
 
 /* Success/error indicators */
@@ -79,6 +142,28 @@
 .eit-error-indicator {
     color: #d63638;
     font-weight: bold;
+}
+
+/* Status messages */
+.eit-bulk-status {
+    font-weight: 500;
+}
+
+.eit-bulk-status div {
+    padding: 2px 0;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+/* Loading animation for bulk button */
+.eit-bulk-translate-btn .eicon-loading {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
 }
 
 /* Responsive adjustments for smaller panels */

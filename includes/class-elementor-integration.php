@@ -7,6 +7,7 @@ class Elementor_Inline_Translate_Integration {
 
     public function __construct() {
         error_log('EIT Debug: Elementor_Inline_Translate_Integration constructor called');
+        
         // Tilføj kontrol til specifikke widgets
         // Eksempel: Overskrift widget
         add_action( 'elementor/element/heading/section_title/before_section_end', [ $this, 'add_translate_button_to_widget' ], 10, 2 );
@@ -14,6 +15,10 @@ class Elementor_Inline_Translate_Integration {
         add_action( 'elementor/element/text-editor/section_editor/before_section_end', [ $this, 'add_translate_button_to_widget' ], 10, 2 );
         // Eksempel: Button widget
         add_action( 'elementor/element/button/section_button/before_section_end', [ $this, 'add_translate_button_to_widget' ], 10, 2 );
+        
+        // Tilføj page settings for bulk oversættelse
+        add_action( 'elementor/documents/register_controls', [ $this, 'add_page_bulk_translation_controls' ] );
+        
         // Du kan tilføje lignende hooks for andre widgets og sektioner.
         // Find de korrekte hooks ved at inspicere Elementors kode eller bruge `elementor/element/after_section_end` og tjekke `$section_id`.
     }
@@ -124,5 +129,90 @@ class Elementor_Inline_Translate_Integration {
                 'default' => $text_control_name,
             ]
         );
+    }
+
+    /**
+     * Tilføj page-level controls for bulk oversættelse.
+     * 
+     * @param \Elementor\Core\DocumentTypes\PageBase $document
+     */
+    public function add_page_bulk_translation_controls( $document ) {
+        // Kun tilføj controls til page documents
+        if ( ! $document instanceof \Elementor\Core\DocumentTypes\PageBase ) {
+            return;
+        }
+
+        error_log('EIT Debug: Adding page bulk translation controls');
+
+        $document->start_controls_section(
+            'eit_bulk_translation_section',
+            [
+                'label' => __( 'Bulk Oversættelse', 'elementor-inline-translate' ),
+                'tab' => \Elementor\Controls_Manager::TAB_SETTINGS,
+            ]
+        );
+
+        $document->add_control(
+            'eit_bulk_translation_notice',
+            [
+                'type' => \Elementor\Controls_Manager::RAW_HTML,
+                'raw' => '<div style="padding: 15px; background: #e3f2fd; border-left: 4px solid #2196f3; margin: 10px 0;">' .
+                         '<h4 style="margin: 0 0 10px 0; color: #1976d2;">' . __( '🌐 Bulk Oversættelse', 'elementor-inline-translate' ) . '</h4>' .
+                         '<p style="margin: 0 0 10px 0;">' . __( 'Brug Navigator panelet til venstre for at oversætte hele siden på én gang.', 'elementor-inline-translate' ) . '</p>' .
+                         '<p style="margin: 0; font-size: 12px; color: #666;">' . __( 'Finder du "Bulk Oversættelse" sektionen øverst i Navigator panelet.', 'elementor-inline-translate' ) . '</p>' .
+                         '</div>',
+            ]
+        );
+
+        $document->add_control(
+            'eit_bulk_default_target_language',
+            [
+                'label' => __( 'Standard Målsprog', 'elementor-inline-translate' ),
+                'type' => \Elementor\Controls_Manager::SELECT,
+                'default' => 'EN-GB',
+                'options' => [
+                    'DA' => __( 'Dansk', 'elementor-inline-translate' ),
+                    'DE' => __( 'Tysk', 'elementor-inline-translate' ),
+                    'EN-GB' => __( 'Engelsk', 'elementor-inline-translate' ),
+                    'FR' => __( 'Fransk', 'elementor-inline-translate' ),
+                    'ES' => __( 'Spansk', 'elementor-inline-translate' ),
+                    'IT' => __( 'Italiensk', 'elementor-inline-translate' ),
+                    'NL' => __( 'Hollandsk', 'elementor-inline-translate' ),
+                    'SV' => __( 'Svensk', 'elementor-inline-translate' ),
+                    'NO' => __( 'Norsk', 'elementor-inline-translate' ),
+                ],
+                'description' => __( 'Dette sprog bruges som standard i bulk oversættelsen.', 'elementor-inline-translate' ),
+            ]
+        );
+
+        // Kun vis exclude controls hvis PolyLang er aktivt
+        $main_plugin = \Elementor_Inline_Translate::instance();
+        if ( $main_plugin->is_polylang_active() ) {
+            $document->add_control(
+                'eit_bulk_polylang_notice',
+                [
+                    'type' => \Elementor\Controls_Manager::RAW_HTML,
+                    'raw' => '<div style="padding: 10px; background: #f0f8ff; border: 1px solid #b3d9ff; border-radius: 4px; margin: 10px 0;">' .
+                             '<strong>' . __( 'PolyLang Integration Aktiv', 'elementor-inline-translate' ) . '</strong><br>' .
+                             __( 'Reference tekst fra hovedsproget vises automatisk.', 'elementor-inline-translate' ) .
+                             '</div>',
+                    'separator' => 'before',
+                ]
+            );
+        }
+
+        $document->add_control(
+            'eit_bulk_translation_stats',
+            [
+                'type' => \Elementor\Controls_Manager::RAW_HTML,
+                'raw' => '<div id="eit-bulk-stats" style="padding: 10px; background: #f9f9f9; border-radius: 4px; margin: 10px 0;">' .
+                         '<strong>' . __( 'Seneste Bulk Oversættelse:', 'elementor-inline-translate' ) . '</strong><br>' .
+                         '<span id="eit-last-bulk-result">' . __( 'Ingen bulk oversættelse udført endnu.', 'elementor-inline-translate' ) . '</span>' .
+                         '</div>',
+                'separator' => 'before',
+            ]
+        );
+
+        $document->end_controls_section();
     }
 }

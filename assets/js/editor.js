@@ -1005,6 +1005,264 @@
             console.log('EIT Debug: Widget editor opened, loading reference text');
             loadReferenceTextForWidget(model);
         });
+
+        /**
+         * BULK TRANSLATION FUNCTIONALITY
+         * Add bulk translation feature for translating entire pages
+         */
+
+        // Add bulk translation button to Elementor navigator
+        function addBulkTranslationButton() {
+            try {
+                // Wait for navigator to be ready
+                setTimeout(function() {
+                    if (elementor && elementor.navigator && elementor.navigator.getLayout) {
+                        const navigatorLayout = elementor.navigator.getLayout();
+                        if (navigatorLayout && navigatorLayout.$el) {
+                            // Check if button already exists
+                            if (navigatorLayout.$el.find('.eit-bulk-translate-btn').length > 0) {
+                                return;
+                            }
+
+                            // Create bulk translation button
+                            const bulkButton = $(`
+                                <div class="eit-bulk-translate-container" style="margin: 10px; padding: 10px; border-top: 1px solid #e1e1e1;">
+                                    <h4 style="margin: 0 0 10px 0; font-size: 12px; color: #71d7f7;">Bulk Oversættelse</h4>
+                                    <div class="eit-bulk-controls">
+                                        <select class="eit-bulk-target-lang" style="width: 100%; margin-bottom: 10px;">
+                                            <option value="EN-GB">Engelsk</option>
+                                            <option value="DE">Tysk</option>
+                                            <option value="DA">Dansk</option>
+                                        </select>
+                                        <button class="eit-bulk-translate-btn elementor-button" style="width: 100%; margin-bottom: 5px;">
+                                            <i class="eicon-globe"></i> Oversæt Hele Siden
+                                        </button>
+                                        <div class="eit-bulk-progress" style="display: none;">
+                                            <div class="eit-progress-bar" style="width: 100%; height: 20px; background: #f1f1f1; border-radius: 10px; overflow: hidden;">
+                                                <div class="eit-progress-fill" style="height: 100%; background: #71d7f7; width: 0%; transition: width 0.3s;"></div>
+                                            </div>
+                                            <div class="eit-progress-text" style="margin-top: 5px; font-size: 11px; text-align: center;">0/0 elementer</div>
+                                        </div>
+                                        <div class="eit-bulk-status" style="font-size: 11px; margin-top: 5px; display: none;"></div>
+                                    </div>
+                                </div>
+                            `);
+
+                            // Insert button at the top of navigator
+                            navigatorLayout.$el.prepend(bulkButton);
+
+                            // Bind click event
+                            bulkButton.find('.eit-bulk-translate-btn').on('click', function() {
+                                const targetLang = bulkButton.find('.eit-bulk-target-lang').val();
+                                startBulkTranslation(targetLang);
+                            });
+
+                            console.log('EIT Debug: Bulk translation button added to navigator');
+                        }
+                    }
+                }, 2000);
+            } catch (error) {
+                console.error('EIT Error: Failed to add bulk translation button:', error);
+            }
+        }
+
+        /**
+         * Start bulk translation process
+         */
+        function startBulkTranslation(targetLanguage) {
+            console.log('EIT Debug: Starting bulk translation to:', targetLanguage);
+
+            if (isTranslating) {
+                elementor.notifications.showToast({
+                    message: 'EIT: En oversættelse er allerede i gang.',
+                    type: 'warning'
+                });
+                return;
+            }
+
+            // Get current post ID
+            const postId = eit_vars.current_post_id || elementor.config.post_id;
+            if (!postId) {
+                elementor.notifications.showToast({
+                    message: 'EIT: Kunne ikke finde post ID.',
+                    type: 'error'
+                });
+                return;
+            }
+
+            // Show confirmation dialog
+            if (!confirm('Er du sikker på at du vil oversætte hele siden? Dette kan tage noget tid og kan ikke fortrydes.')) {
+                return;
+            }
+
+            isTranslating = true;
+
+            // Update UI to show progress
+            const container = $('.eit-bulk-translate-container');
+            const button = container.find('.eit-bulk-translate-btn');
+            const progress = container.find('.eit-bulk-progress');
+            const status = container.find('.eit-bulk-status');
+
+            button.prop('disabled', true).html('<i class="eicon-loading eicon-animation-spin"></i> Oversætter...');
+            progress.show();
+            status.show().text('Starter bulk oversættelse...');
+
+            // Show initial notification
+            elementor.notifications.showToast({
+                message: 'EIT: Starter bulk oversættelse af hele siden...',
+                type: 'info'
+            });
+
+            // Send AJAX request for bulk translation
+            jQuery.ajax({
+                url: eit_vars.ajax_url,
+                type: 'POST',
+                data: {
+                    action: 'eit_translate_page_bulk',
+                    nonce: eit_vars.nonce,
+                    target_lang: targetLanguage,
+                    post_id: postId,
+                    exclude_elements: [] // Could be made configurable
+                },
+                success: function(response) {
+                    console.log('EIT Debug: Bulk translation response:', response);
+
+                    if (response.success && response.data) {
+                        const data = response.data;
+                        const translations = data.translations || [];
+                        const successful = data.successful_translations || 0;
+                        const failed = data.failed_translations || 0;
+                        const total = data.total_elements || 0;
+
+                        // Update progress bar
+                        const progressPercent = total > 0 ? 100 : 0;
+                        progress.find('.eit-progress-fill').css('width', progressPercent + '%');
+                        progress.find('.eit-progress-text').text(`${total}/${total} elementer`);
+
+                        // Apply translations to the page
+                        applyBulkTranslations(translations);
+
+                        // Update status
+                        status.html(`
+                            <div style="color: #00a32a;">✓ ${successful} oversatte</div>
+                            ${failed > 0 ? `<div style="color: #d63638;">✗ ${failed} fejlede</div>` : ''}
+                        `);
+
+                        // Show success notification
+                        elementor.notifications.showToast({
+                            message: `EIT: Bulk oversættelse fuldført! ${successful} elementer oversat${failed > 0 ? `, ${failed} fejlede` : ''}.`,
+                            type: successful > 0 ? 'success' : 'warning'
+                        });
+
+                        // Mark document as dirty for saving
+                        try {
+                            if (elementor.documents && elementor.documents.getCurrent) {
+                                const currentDocument = elementor.documents.getCurrent();
+                                if (currentDocument && currentDocument.setDirty) {
+                                    currentDocument.setDirty(true);
+                                    console.log('EIT Debug: Marked document as dirty after bulk translation');
+                                }
+                            }
+                        } catch (error) {
+                            console.log('EIT Debug: Could not mark document as dirty:', error);
+                        }
+
+                        // Auto-hide status after 10 seconds
+                        setTimeout(function() {
+                            status.fadeOut();
+                            progress.fadeOut();
+                        }, 10000);
+
+                    } else {
+                        console.error('EIT Error: Bulk translation failed:', response);
+                        status.html('<div style="color: #d63638;">Bulk oversættelse fejlede</div>');
+                        
+                        elementor.notifications.showToast({
+                            message: 'EIT: Bulk oversættelse fejlede: ' + (response.data || 'Ukendt fejl'),
+                            type: 'error'
+                        });
+                    }
+                },
+                error: function(xhr, status, error) {
+                    console.error('EIT Error: Bulk translation AJAX failed:', xhr, status, error);
+                    
+                    container.find('.eit-bulk-status').html('<div style="color: #d63638;">Netværksfejl</div>');
+                    
+                    elementor.notifications.showToast({
+                        message: 'EIT: Netværksfejl under bulk oversættelse.',
+                        type: 'error'
+                    });
+                },
+                complete: function() {
+                    // Reset UI state
+                    button.prop('disabled', false).html('<i class="eicon-globe"></i> Oversæt Hele Siden');
+                    isTranslating = false;
+                }
+            });
+        }
+
+        /**
+         * Apply bulk translations to page elements
+         */
+        function applyBulkTranslations(translations) {
+            console.log('EIT Debug: Applying bulk translations:', translations);
+
+            if (!Array.isArray(translations)) {
+                console.error('EIT Error: Invalid translations data');
+                return;
+            }
+
+            let appliedCount = 0;
+
+            translations.forEach(function(translation) {
+                if (translation.success && translation.translated_text) {
+                    try {
+                        // Find the element in Elementor
+                        const element = elementor.getPreviewView().findElementModel(translation.element_id);
+                        
+                        if (element) {
+                            const settings = element.get('settings');
+                            if (settings && settings.set) {
+                                settings.set(translation.control_name, translation.translated_text);
+                                appliedCount++;
+                                console.log('EIT Debug: Applied translation to element:', translation.element_id);
+                            }
+                        } else {
+                            console.log('EIT Debug: Could not find element model for:', translation.element_id);
+                        }
+                    } catch (error) {
+                        console.error('EIT Error: Failed to apply translation to element:', translation.element_id, error);
+                    }
+                }
+            });
+
+            console.log(`EIT Debug: Applied ${appliedCount} out of ${translations.length} translations`);
+
+            // Force preview refresh to show all changes
+            setTimeout(function() {
+                try {
+                    if (elementor.getPreviewView && elementor.getPreviewView().forceRefresh) {
+                        elementor.getPreviewView().forceRefresh();
+                        console.log('EIT Debug: Forced preview refresh after bulk translation');
+                    }
+                } catch (error) {
+                    console.log('EIT Debug: Could not force preview refresh:', error);
+                }
+            }, 500);
+        }
+
+        // Initialize bulk translation when navigator is ready
+        elementor.on('navigator:loaded', function() {
+            console.log('EIT Debug: Navigator loaded, adding bulk translation button');
+            addBulkTranslationButton();
+        });
+
+        // Also try to add it after a delay in case navigator is already loaded
+        setTimeout(function() {
+            addBulkTranslationButton();
+        }, 3000);
+
+        // END BULK TRANSLATION FUNCTIONALITY
         
         console.log('Elementor Inline Translate editor script loaded and initialized.');
     });
