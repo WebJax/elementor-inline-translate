@@ -739,11 +739,10 @@ final class Elementor_Inline_Translate {
                     // Ryd op XML-erklæringen
                     $result = preg_replace( '/^<\?xml[^>]*\?>/', '', $result );
                     
-                    // Clean up extra whitespace that might have been introduced
-                    $result = preg_replace( '/\s+/', ' ', $result );
-                    $result = preg_replace( '/>\s+</', '><', $result );
+                    // Clean up extra whitespace that might have been introduced, but preserve structure
+                    $result = preg_replace( '/\s{2,}/', ' ', $result );
                     
-                    error_log('EIT Debug: Successfully reconstructed HTML: ' . $result);
+                    error_log('EIT Debug: Successfully reconstructed HTML: ' . substr($result, 0, 200) . '...');
                     return $result;
                 }
             }

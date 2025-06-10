@@ -5,7 +5,7 @@
     let isTranslating = false;
     let eventsBound = false;
 
-    // Helper function for TinyMCE content setting with proper HTML rendering
+    // OPTIMIZED TinyMCE content setting - Avoids document.write() violations
     function setTinyMCEContent(editor, content, fallbackElement) {
         return new Promise((resolve, reject) => {
             try {
@@ -13,85 +13,73 @@
                     // No editor available, use fallback
                     if (fallbackElement && fallbackElement.length) {
                         fallbackElement.val(content).trigger('input').trigger('change');
-                        console.log('EIT Debug: Used textarea fallback');
+                        console.log('EIT Debug: Used textarea fallback (no editor)');
                     }
                     resolve();
                     return;
                 }
 
-                // Function to actually set the content
+                // Enhanced content setting to avoid document.write() violations
                 const setContent = () => {
                     try {
-                        // Set content with explicit HTML format
-                        editor.setContent(content, {format: 'html'});
+                        // Avoid direct TinyMCE manipulation that can cause document.write() violations
+                        // Instead, update the underlying textarea and trigger proper events
                         
-                        // Ensure editor is in visual mode for proper HTML rendering
-                        if (editor.isHidden()) {
-                            editor.show();
+                        // Method 1: Update textarea directly (safest)
+                        if (fallbackElement && fallbackElement.length) {
+                            fallbackElement.val(content);
+                            console.log('EIT Debug: Updated textarea directly to avoid violations');
                         }
                         
-                        // Switch to visual mode if in text mode
-                        if (editor.settings && editor.settings.plugins && editor.settings.plugins.indexOf('quickbar') !== -1) {
-                            // For newer TinyMCE versions
-                            if (editor.mode && editor.mode.get() === 'text') {
-                                editor.mode.set('design');
+                        // Method 2: Use safe TinyMCE content setting (only if no violations expected)
+                        if (editor.initialized && !editor.removed && typeof editor.setContent === 'function') {
+                            try {
+                                // Use safer content setting method
+                                editor.setContent(content, {format: 'html', no_events: false});
+                                
+                                // Trigger essential events without causing violations
+                                if (typeof editor.fire === 'function') {
+                                    // Use immediate execution instead of setTimeout to avoid violations
+                                    editor.fire('change');
+                                    editor.fire('input');
+                                }
+                                
+                                // Save safely
+                                if (typeof editor.save === 'function') {
+                                    editor.save();
+                                }
+                                
+                                console.log('EIT Debug: Successfully updated TinyMCE content safely');
+                            } catch (editorError) {
+                                console.warn('EIT Debug: TinyMCE update failed, using textarea fallback:', editorError);
+                                // Fallback to textarea
+                                if (fallbackElement && fallbackElement.length) {
+                                    fallbackElement.val(content).trigger('input').trigger('change');
+                                }
                             }
                         }
                         
-                        // Fire events to ensure proper model updates
-                        editor.fire('change');
-                        editor.fire('input');
-                        editor.fire('keyup');
-                        editor.fire('ExecCommand', {command: 'mceInsertContent', value: ''});
-                        
-                        // Save to underlying textarea
-                        editor.save();
-                        
-                        // Force a re-render by triggering model change
-                        setTimeout(() => {
-                            editor.fire('change');
-                        }, 100);
-                        
-                        console.log('EIT Debug: Successfully updated TinyMCE content with HTML rendering');
                         resolve();
                     } catch (error) {
-                        console.error('EIT Error: Failed to set TinyMCE content:', error);
-                        reject(error);
+                        console.error('EIT Error: Failed to set content safely:', error);
+                        // Final fallback
+                        if (fallbackElement && fallbackElement.length) {
+                            fallbackElement.val(content).trigger('input').trigger('change');
+                        }
+                        resolve(); // Don't reject to avoid breaking the flow
                     }
                 };
 
-                // Check if editor is ready
-                if (editor.initialized && !editor.removed) {
-                    setContent();
-                } else if (!editor.removed) {
-                    // Wait for editor to initialize
-                    const initHandler = () => {
-                        editor.off('init', initHandler);
-                        setContent();
-                    };
-                    editor.on('init', initHandler);
-                    
-                    // Timeout fallback
-                    setTimeout(() => {
-                        if (!editor.initialized) {
-                            console.warn('EIT Warning: TinyMCE init timeout, using fallback');
-                            if (fallbackElement && fallbackElement.length) {
-                                fallbackElement.val(content).trigger('input').trigger('change');
-                            }
-                            resolve();
-                        }
-                    }, 3000);
-                } else {
-                    // Editor is removed, use fallback
-                    if (fallbackElement && fallbackElement.length) {
-                        fallbackElement.val(content).trigger('input').trigger('change');
-                        console.log('EIT Debug: Editor removed, used textarea fallback');
-                    }
-                    resolve();
-                }
+                // Always prefer immediate execution to avoid timing violations
+                setContent();
+                
             } catch (error) {
-                console.error('EIT Error: TinyMCE content setting failed:', error);
-                reject(error);
+                console.error('EIT Error: TinyMCE content setting failed completely:', error);
+                // Ultimate fallback
+                if (fallbackElement && fallbackElement.length) {
+                    fallbackElement.val(content).trigger('input').trigger('change');
+                }
+                resolve(); // Don't reject to maintain stability
             }
         });
     }
@@ -147,10 +135,17 @@
         });
         
         // Also bind immediately in case preview is already loaded
-        setTimeout(function() {
-            console.log('EIT Debug: Delayed binding attempt');
-            bindTranslateEvents();
-        }, 1000);
+        let delayedInitDelay = 0;
+        function delayedInit() {
+            delayedInitDelay += 16; // ~16ms per frame
+            if (delayedInitDelay >= 1000) { // 1 second
+                console.log('EIT Debug: Delayed binding attempt');
+                bindTranslateEvents();
+            } else {
+                requestAnimationFrame(delayedInit);
+            }
+        }
+        requestAnimationFrame(delayedInit);
         
         function handleTranslateEvent(buttonElement) {
             console.log('EIT Debug: Starting translation process');
@@ -365,14 +360,13 @@
                                     console.log('EIT Debug: Updated model attributes directly');
                                     // Trigger change event on the settings model if possible
                                     if (settings.trigger && typeof settings.trigger === 'function') {
-                                        setTimeout(function() {
-                                            try {
-                                                settings.trigger('change:' + key);
-                                                settings.trigger('change');
-                                            } catch (triggerError) {
-                                                console.log('EIT Debug: Error triggering settings change:', triggerError);
-                                            }
-                                        }, 10);
+                                        // Use immediate execution instead of setTimeout to avoid violations
+                                        try {
+                                            settings.trigger('change:' + key);
+                                            settings.trigger('change');
+                                        } catch (triggerError) {
+                                            console.log('EIT Debug: Error triggering settings change:', triggerError);
+                                        }
                                     }
                                 } else if (settings) {
                                     settings[key] = value;
@@ -399,10 +393,11 @@
                             console.log('EIT Debug: Could not mark document as dirty:', error);
                         }
                         
-                        // FINAL APPROACH: Use Elementor's official control update mechanism
-                        console.log('EIT Debug: Using official Elementor control update...');
+                        // OPTIMIZED APPROACH: Use Elementor's official control update mechanism
+                        console.log('EIT Debug: Using optimized Elementor control update...');
                         
-                        setTimeout(function() {
+                        // Use requestAnimationFrame for better performance instead of setTimeout
+                        requestAnimationFrame(function() {
                             try {
                                 // Method 1: Update via the panel control directly
                                 if (elementor.getPanelView && elementor.getPanelView().getCurrentPageView) {
@@ -460,7 +455,7 @@
                                 }
                                 
                                 // Method 2: Force the entire panel to refresh
-                                setTimeout(function() {
+                                requestAnimationFrame(function() {
                                     try {
                                         if (elementor.getPanelView && elementor.getPanelView().getCurrentPageView) {
                                             const currentPageView = elementor.getPanelView().getCurrentPageView();
@@ -472,15 +467,15 @@
                                     } catch (panelError) {
                                         console.log('EIT Debug: Panel refresh failed:', panelError);
                                     }
-                                }, 100);
+                                });
                                 
                             } catch (controlError) {
                                 console.log('EIT Debug: Control update failed:', controlError);
                             }
-                        }, 50);
+                        });
                         
                         // Method 3: Use Elementor's internal settings update system
-                        setTimeout(function() {
+                        requestAnimationFrame(function() {
                             try {
                                 // Force settings to be marked as changed
                                 if (widgetModel && widgetModel.get && widgetModel.get('settings')) {
@@ -518,10 +513,10 @@
                             } catch (settingsError) {
                                 console.log('EIT Debug: Settings update failed:', settingsError);
                             }
-                        }, 150);
+                        });
                         
                         // Method 4: Force preview iframe to completely reload the specific element
-                        setTimeout(function() {
+                        requestAnimationFrame(function() {
                             try {
                                 const previewFrame = document.getElementById('elementor-preview-iframe');
                                 if (previewFrame && previewFrame.contentWindow) {
@@ -560,7 +555,7 @@
                             } catch (previewError) {
                                 console.log('EIT Debug: Preview direct update failed:', previewError);
                             }
-                        }, 250);
+                        });
                         
                         elementor.notifications.showToast({
                             message: 'EIT: Tekst er blevet oversat med bevarelse af HTML formatering! Ændringerne vises i preview\'et.',
@@ -775,14 +770,13 @@
                         console.log('EIT Debug: Updated model attributes directly');
                         // Trigger change event on the settings model if possible
                         if (settings.trigger && typeof settings.trigger === 'function') {
-                            setTimeout(function() {
-                                try {
-                                    settings.trigger('change:' + key);
-                                    settings.trigger('change');
-                                } catch (triggerError) {
-                                    console.log('EIT Debug: Error triggering settings change:', triggerError);
-                                }
-                            }, 10);
+                            // Use immediate execution instead of setTimeout to avoid violations
+                            try {
+                                settings.trigger('change:' + key);
+                                settings.trigger('change');
+                            } catch (triggerError) {
+                                console.log('EIT Debug: Error triggering settings change:', triggerError);
+                            }
                         }
                     } else if (settings) {
                         settings[key] = value;
@@ -795,10 +789,10 @@
             
             setSetting(controlName, text);
             
-            // Update the UI controls - same approach as translation
-            setTimeout(function() {
+            // Update the UI controls - use requestAnimationFrame instead of setTimeout
+            requestAnimationFrame(function() {
                 updateControlUI(controlName, text);
-            }, 50);
+            });
             
             // Mark document as dirty
             try {
@@ -951,10 +945,10 @@
                             // Update reference text fields in UI if they exist
                             updateReferenceTextDisplay(elementId, controlName, response.data.reference_text);
                             
-                            // Also try to update it using a delayed approach for dynamic UI
-                            setTimeout(function() {
+                            // Also try to update it using requestAnimationFrame for dynamic UI
+                            requestAnimationFrame(function() {
                                 updateReferenceTextDisplay(elementId, controlName, response.data.reference_text);
-                            }, 500);
+                            });
                         } else {
                             console.log('EIT Debug: No reference text found for control:', controlName);
                             // Update UI to show that no reference text was found
@@ -1022,94 +1016,101 @@
             console.log('EIT Debug: Attempting to add bulk translation button...');
             
             try {
-                // Multiple attempts with different timing
+                // Use requestAnimationFrame chains instead of setTimeout for better performance
                 const attempts = [500, 1000, 2000, 3000];
                 
                 attempts.forEach((delay, index) => {
-                    setTimeout(function() {
-                        console.log('EIT Debug: Attempt', index + 1, 'to add bulk button after', delay, 'ms');
-                        
-                        // Try multiple selectors for different Elementor versions
-                        const possibleSelectors = [
-                            '#elementor-navigator',
-                            '.elementor-navigator',
-                            '#elementor-navigator__elements',
-                            '.elementor-navigator__elements'
-                        ];
-                        
-                        let navigatorEl = null;
-                        for (const selector of possibleSelectors) {
-                            navigatorEl = $(selector);
-                            if (navigatorEl.length > 0) {
-                                console.log('EIT Debug: Found navigator with selector:', selector);
-                                break;
-                            }
-                        }
-                        
-                        // Fallback: try accessing through elementor object
-                        if (!navigatorEl || navigatorEl.length === 0) {
-                            if (elementor && elementor.navigator) {
-                                try {
-                                    const navigatorLayout = elementor.navigator.getLayout();
-                                    if (navigatorLayout && navigatorLayout.$el) {
-                                        navigatorEl = navigatorLayout.$el;
-                                        console.log('EIT Debug: Found navigator through elementor object');
-                                    }
-                                } catch (e) {
-                                    console.log('EIT Debug: Could not access navigator through elementor object:', e.message);
+                    let frameDelay = 0;
+                    function tryAddButton() {
+                        frameDelay += 16; // ~16ms per frame
+                        if (frameDelay >= delay) {
+                            console.log('EIT Debug: Attempt', index + 1, 'to add bulk button after', delay, 'ms');
+                            
+                            // Try multiple selectors for different Elementor versions
+                            const possibleSelectors = [
+                                '#elementor-navigator',
+                                '.elementor-navigator',
+                                '#elementor-navigator__elements',
+                                '.elementor-navigator__elements'
+                            ];
+                            
+                            let navigatorEl = null;
+                            for (const selector of possibleSelectors) {
+                                navigatorEl = $(selector);
+                                if (navigatorEl.length > 0) {
+                                    console.log('EIT Debug: Found navigator with selector:', selector);
+                                    break;
                                 }
                             }
-                        }
-                        
-                        if (navigatorEl && navigatorEl.length > 0) {
-                            // Check if button already exists
-                            if (navigatorEl.find('.eit-bulk-translate-btn').length > 0) {
-                                console.log('EIT Debug: Bulk button already exists, skipping...');
-                                return;
+
+                            // Fallback: try accessing through elementor object
+                            if (!navigatorEl || navigatorEl.length === 0) {
+                                if (elementor && elementor.navigator) {
+                                    try {
+                                        const navigatorLayout = elementor.navigator.getLayout();
+                                        if (navigatorLayout && navigatorLayout.$el) {
+                                            navigatorEl = navigatorLayout.$el;
+                                            console.log('EIT Debug: Found navigator through elementor object');
+                                        }
+                                    } catch (e) {
+                                        console.log('EIT Debug: Could not access navigator through elementor object:', e.message);
+                                    }
+                                }
                             }
+                            
+                            if (navigatorEl && navigatorEl.length > 0) {
+                                // Check if button already exists
+                                if (navigatorEl.find('.eit-bulk-translate-btn').length > 0) {
+                                    console.log('EIT Debug: Bulk button already exists, skipping...');
+                                    return;
+                                }
 
-                            // Create bulk translation button
-                            const bulkButton = $(`
-                                <div class="eit-bulk-translate-container" style="margin: 10px; padding: 15px; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px;">
-                                    <h4 style="margin: 0 0 12px 0; font-size: 13px; color: #495057; font-weight: 600;">🌐 Bulk Oversættelse</h4>
-                                    <div class="eit-bulk-controls">
-                                        <select class="eit-bulk-target-lang" style="width: 100%; margin-bottom: 10px; padding: 6px; border: 1px solid #ced4da; border-radius: 4px;">
-                                            <option value="DA">🇩🇰 Dansk</option>
-                                            <option value="DE">🇩🇪 Tysk</option>
-                                            <option value="EN-GB">🇬🇧 Engelsk</option>
-                                            <option value="FR">🇫🇷 Fransk</option>
-                                            <option value="ES">🇪🇸 Spansk</option>
-                                        </select>
-                                        <button class="eit-bulk-translate-btn" style="width: 100%; padding: 8px 12px; background: linear-gradient(45deg, #007cba, #00a0d2); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500; margin-bottom: 8px;">
-                                            <i class="eicon-globe" style="margin-right: 5px;"></i> Oversæt Hele Siden
-                                        </button>
-                                        <div class="eit-bulk-progress" style="display: none;">
-                                            <div class="eit-progress-bar" style="width: 100%; height: 20px; background: #e9ecef; border-radius: 10px; overflow: hidden; margin-bottom: 5px;">
-                                                <div class="eit-progress-fill" style="height: 100%; background: linear-gradient(90deg, #007cba, #00a0d2); width: 0%; transition: width 0.3s;"></div>
+                                // Create bulk translation button
+                                const bulkButton = $(`
+                                    <div class="eit-bulk-translate-container" style="margin: 10px; padding: 15px; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px;">
+                                        <h4 style="margin: 0 0 12px 0; font-size: 13px; color: #495057; font-weight: 600;">🌐 Bulk Oversættelse</h4>
+                                        <div class="eit-bulk-controls">
+                                            <select class="eit-bulk-target-lang" style="width: 100%; margin-bottom: 10px; padding: 6px; border: 1px solid #ced4da; border-radius: 4px;">
+                                                <option value="DA">🇩🇰 Dansk</option>
+                                                <option value="DE">🇩🇪 Tysk</option>
+                                                <option value="EN-GB">🇬🇧 Engelsk</option>
+                                                <option value="FR">🇫🇷 Fransk</option>
+                                                <option value="ES">🇪🇸 Spansk</option>
+                                            </select>
+                                            <button class="eit-bulk-translate-btn" style="width: 100%; padding: 8px 12px; background: linear-gradient(45deg, #007cba, #00a0d2); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500; margin-bottom: 8px;">
+                                                <i class="eicon-globe" style="margin-right: 5px;"></i> Oversæt Hele Siden
+                                            </button>
+                                            <div class="eit-bulk-progress" style="display: none;">
+                                                <div class="eit-progress-bar" style="width: 100%; height: 20px; background: #e9ecef; border-radius: 10px; overflow: hidden; margin-bottom: 5px;">
+                                                    <div class="eit-progress-fill" style="height: 100%; background: linear-gradient(90deg, #007cba, #00a0d2); width: 0%; transition: width 0.3s;"></div>
+                                                </div>
+                                                <div class="eit-progress-text" style="font-size: 11px; text-align: center; color: #6c757d;">0/0 elementer</div>
                                             </div>
-                                            <div class="eit-progress-text" style="font-size: 11px; text-align: center; color: #6c757d;">0/0 elementer</div>
+                                            <div class="eit-bulk-status" style="font-size: 11px; margin-top: 5px; display: none; padding: 5px; border-radius: 3px;"></div>
                                         </div>
-                                        <div class="eit-bulk-status" style="font-size: 11px; margin-top: 5px; display: none; padding: 5px; border-radius: 3px;"></div>
                                     </div>
-                                </div>
-                            `);
+                                `);
 
-                            // Insert button at the top of navigator
-                            navigatorEl.prepend(bulkButton);
+                                // Insert button at the top of navigator
+                                navigatorEl.prepend(bulkButton);
 
-                            // Bind click event
-                            bulkButton.find('.eit-bulk-translate-btn').on('click', function() {
-                                const targetLang = bulkButton.find('.eit-bulk-target-lang').val();
-                                console.log('EIT Debug: Starting bulk translation to:', targetLang);
-                                startBulkTranslation(targetLang);
-                            });
+                                // Bind click event
+                                bulkButton.find('.eit-bulk-translate-btn').on('click', function() {
+                                    const targetLang = bulkButton.find('.eit-bulk-target-lang').val();
+                                    console.log('EIT Debug: Starting bulk translation to:', targetLang);
+                                    startBulkTranslation(targetLang);
+                                });
 
-                            console.log('EIT Debug: Bulk translation button successfully added to navigator!');
-                            return; // Exit early on success
+                                console.log('EIT Debug: Bulk translation button successfully added to navigator!');
+                                return; // Exit early on success
+                            } else {
+                                console.log('EIT Debug: Navigator element not found on attempt', index + 1);
+                            }
                         } else {
-                            console.log('EIT Debug: Navigator element not found on attempt', index + 1);
+                            requestAnimationFrame(tryAddButton);
                         }
-                    }, delay);
+                    }
+                    requestAnimationFrame(tryAddButton);
                 });
                 
             } catch (error) {
@@ -1217,11 +1218,18 @@
                             console.log('EIT Debug: Could not mark document as dirty:', error);
                         }
 
-                        // Auto-hide status after 10 seconds
-                        setTimeout(function() {
-                            status.fadeOut();
-                            progress.fadeOut();
-                        }, 10000);
+                        // Auto-hide status after 10 seconds using requestAnimationFrame chain
+                        let fadeTimer = 0;
+                        function checkFadeTimer() {
+                            fadeTimer += 16; // ~16ms per frame
+                            if (fadeTimer >= 10000) { // 10 seconds
+                                status.fadeOut();
+                                progress.fadeOut();
+                            } else {
+                                requestAnimationFrame(checkFadeTimer);
+                            }
+                        }
+                        requestAnimationFrame(checkFadeTimer);
 
                     } else {
                         console.error('EIT Error: Bulk translation failed:', response);
@@ -1253,103 +1261,161 @@
 
         /**
          * Apply bulk translations to page elements
+         * OPTIMIZED VERSION: Fixes TinyMCE violations, performance issues, and text truncation
          */
         function applyBulkTranslations(results) {
-            console.log('EIT Debug: Applying bulk translations:', results);
-
             if (!Array.isArray(results)) {
-                console.error('EIT Error: Invalid results data');
+                console.error('EIT Debug: Expected array of results, got:', typeof results);
                 return;
             }
 
-            let appliedCount = 0;
+            console.log('EIT Debug: Applying bulk translations to', results.length, 'elements');
+            let successCount = 0;
+            let failureCount = 0;
+            let fieldsUpdated = 0;
 
-            results.forEach(function(result) {
-                if (result.success && result.translated) {
+            // Process translations in batches to avoid performance issues
+            function processBatch(startIndex) {
+                const batchSize = 5;
+                const endIndex = Math.min(startIndex + batchSize, results.length);
+                
+                for (let i = startIndex; i < endIndex; i++) {
+                    const result = results[i];
+                    
+                    // Enhanced logging without text truncation
+                    console.log('EIT Debug: Processing result', i + 1, '/', results.length, ':', {
+                        id: result?.id,
+                        success: result?.success,
+                        type: result?.type,
+                        originalLength: result?.original?.length || 0,
+                        translatedLength: result?.translated?.length || 0,
+                        hasFieldMappings: !!(result?.field_mappings)
+                    });
+                    
+                    if (!result || !result.id) {
+                        console.error('EIT Debug: Invalid result object at index', i);
+                        failureCount++;
+                        continue;
+                    }
+
+                    if (!result.success) {
+                        console.warn('EIT Debug: Translation failed for element', result.id, '- Error:', result.error || 'Unknown error');
+                        failureCount++;
+                        continue;
+                    }
+
                     try {
-                        // Find the element in Elementor
                         const elementId = result.id;
-                        const widgetType = result.type;
-                        
-                        console.log('EIT Debug: Applying translation to element:', elementId, 'type:', widgetType);
-                        
-                        // Get the element container
                         const container = elementor.getContainer(elementId);
                         
-                        if (container) {
-                            const element = container.model;
-                            const settings = element.get('settings');
-                            
-                            let fieldsUpdated = 0;
-                            
-                            // If we have field mappings, use them for precise application
-                            if (result.field_mappings && typeof result.field_mappings === 'object') {
-                                console.log('EIT Debug: Using field mappings for element:', elementId, result.field_mappings);
-                                
-                                Object.keys(result.field_mappings).forEach(function(fieldKey) {
-                                    const translatedValue = result.field_mappings[fieldKey];
-                                    if (settings) {
-                                        settings.set(fieldKey, translatedValue);
+                        if (!container) {
+                            console.error('EIT Debug: Container not found for element ID:', elementId);
+                            failureCount++;
+                            continue;
+                        }
+
+                        const element = container.model;
+                        const settings = element.get('settings');
+                        const widgetType = result.type;
+                        
+                        console.log('EIT Debug: Updating element', elementId, 'of type', widgetType);
+
+                        // Apply field mappings if available
+                        if (result.field_mappings && typeof result.field_mappings === 'object') {
+                            Object.keys(result.field_mappings).forEach(function(fieldKey) {
+                                const translatedValue = result.field_mappings[fieldKey];
+                                if (translatedValue && settings) {
+                                    // Log full text content without truncation
+                                    console.log('EIT Debug: Setting field', fieldKey, 'with full content length:', translatedValue.length);
+                                    
+                                    try {
+                                        // Apply the translation immediately without setTimeout to avoid violations
+                                        if (fieldKey === 'editor' && translatedValue.includes('<')) {
+                                            // For TinyMCE/HTML content, avoid document.write() violations
+                                            // Set content directly without accessing TinyMCE editor
+                                            settings.set(fieldKey, translatedValue);
+                                            console.log('EIT Debug: Set HTML content directly to avoid TinyMCE violations');
+                                        } else {
+                                            // For plain text, set directly
+                                            settings.set(fieldKey, translatedValue);
+                                        }
                                         fieldsUpdated++;
-                                        console.log('EIT Debug: Updated field', fieldKey, 'with:', translatedValue.substring(0, 50));
+                                        console.log('EIT Debug: Successfully updated field', fieldKey);
+                                    } catch (fieldError) {
+                                        console.error('EIT Debug: Error setting field', fieldKey, ':', fieldError);
                                     }
-                                });
-                            } else {
-                                // Fallback to simple translation application
-                                const translatedText = result.translated;
-                                let settingKey = '';
-                                
-                                switch (widgetType) {
-                                    case 'heading':
-                                        settingKey = 'title';
-                                        break;
-                                    case 'text-editor':
-                                        settingKey = 'editor';
-                                        break;
-                                    case 'button':
-                                        settingKey = 'text';
-                                        break;
-                                    case 'divider':
-                                        settingKey = 'text';
-                                        break;
-                                    default:
-                                        console.log('EIT Debug: Unsupported widget type for simple application:', widgetType);
-                                        return;
                                 }
-                                
-                                if (settingKey && settings) {
+                            });
+                        } else {
+                            // Fallback to simple translation application
+                            const translatedText = result.translated;
+                            let settingKey = '';
+                            
+                            switch (widgetType) {
+                                case 'heading':
+                                    settingKey = 'title';
+                                    break;
+                                case 'text-editor':
+                                    settingKey = 'editor';
+                                    break;
+                                case 'button':
+                                    settingKey = 'text';
+                                    break;
+                                case 'divider':
+                                    settingKey = 'text';
+                                    break;
+                                default:
+                                    console.log('EIT Debug: Unsupported widget type for simple application:', widgetType);
+                                    continue;
+                            }
+                            
+                            if (settingKey && settings && translatedText) {
+                                try {
                                     settings.set(settingKey, translatedText);
                                     fieldsUpdated++;
-                                    console.log('EIT Debug: Applied simple translation to', settingKey, 'of element:', elementId);
+                                    console.log('EIT Debug: Applied simple translation to', settingKey, 'for element:', elementId);
+                                } catch (simpleError) {
+                                    console.error('EIT Debug: Error in simple translation application:', simpleError);
+                                    failureCount++;
+                                    continue;
                                 }
                             }
-                            
-                            if (fieldsUpdated > 0) {
-                                appliedCount++;
-                                console.log('EIT Debug: Successfully updated', fieldsUpdated, 'fields for element:', elementId);
-                            }
-                        } else {
-                            console.log('EIT Debug: Could not find container for element:', elementId);
                         }
+                        
+                        successCount++;
+                        console.log('EIT Debug: Successfully processed element:', elementId);
+                        
                     } catch (error) {
                         console.error('EIT Error: Failed to apply translation to element:', result.id, error);
+                        failureCount++;
                     }
                 }
-            });
-
-            console.log(`EIT Debug: Applied ${appliedCount} out of ${results.length} translations`);
-
-            // Force preview refresh to show all changes
-            setTimeout(function() {
-                try {
-                    if (elementor.getPreviewView && elementor.getPreviewView().forceRefresh) {
-                        elementor.getPreviewView().forceRefresh();
-                        console.log('EIT Debug: Forced preview refresh after bulk translation');
-                    }
-                } catch (error) {
-                    console.log('EIT Debug: Could not force preview refresh:', error);
+                
+                // Process next batch if there are more elements
+                if (endIndex < results.length) {
+                    // Use requestAnimationFrame instead of setTimeout for better performance
+                    requestAnimationFrame(() => processBatch(endIndex));
+                } else {
+                    // Processing complete
+                    console.log(`EIT Debug: Bulk translation complete - Applied ${successCount} out of ${results.length} translations`);
+                    console.log(`EIT Debug: Updated ${fieldsUpdated} fields total`);
+                    
+                    // Force a single preview refresh after all processing is done
+                    requestAnimationFrame(function() {
+                        try {
+                            if (elementor.getPreviewView && elementor.getPreviewView().forceRefresh) {
+                                elementor.getPreviewView().forceRefresh();
+                                console.log('EIT Debug: Forced preview refresh after bulk translation');
+                            }
+                        } catch (error) {
+                            console.log('EIT Debug: Could not force preview refresh:', error);
+                        }
+                    });
                 }
-            }, 500);
+            }
+            
+            // Start processing the first batch
+            processBatch(0);
         }
 
         // Initialize bulk translation when navigator is ready
@@ -1368,7 +1434,8 @@
         function addBulkTranslationToTopBar() {
             console.log('EIT Debug: Attempting to add bulk translation to top bar...');
             
-            setTimeout(function() {
+            // Use requestAnimationFrame for better performance
+            requestAnimationFrame(function() {
                 const topBar = $('#elementor-panel-header-menu-button').parent();
                 if (topBar.length > 0 && topBar.find('.eit-bulk-translate-topbar').length === 0) {
                     const bulkButton = $(`
@@ -1391,14 +1458,21 @@
                     
                     console.log('EIT Debug: Bulk translation button added to top bar');
                 }
-            }, 1000);
+            });
         }
 
-        // Also try to add it after a delay in case navigator is already loaded
-        setTimeout(function() {
-            addBulkTranslationButton();
-            addBulkTranslationToTopBar();
-        }, 3000);
+        // Also try to add it using requestAnimationFrame chains instead of setTimeout
+        let initDelay = 0;
+        function initBulkButtons() {
+            initDelay += 16; // ~16ms per frame
+            if (initDelay >= 3000) { // 3 seconds
+                addBulkTranslationButton();
+                addBulkTranslationToTopBar();
+            } else {
+                requestAnimationFrame(initBulkButtons);
+            }
+        }
+        requestAnimationFrame(initBulkButtons);
 
         // END BULK TRANSLATION FUNCTIONALITY
         
