@@ -1072,6 +1072,7 @@ final class Elementor_Inline_Translate {
      */
     private function translate_single_element_bulk( $element, $target_language ) {
         if ( empty( $element['original_text'] ) ) {
+            error_log('EIT Debug: Empty original text for element: ' . $element['id']);
             return false;
         }
 
@@ -1083,27 +1084,35 @@ final class Elementor_Inline_Translate {
         $text_fields = $this->get_widget_text_fields( $widget_type, $settings );
         
         if ( empty( $text_fields ) ) {
+            error_log('EIT Debug: No text fields found for widget type: ' . $widget_type . ' in element: ' . $element['id']);
             return false;
         }
         
         $field_mappings = [];
         $combined_original = [];
-        $all_translations_successful = true;
+        $translation_errors = [];
         
         // Translate each field individually
         foreach ( $text_fields as $field_key => $field_text ) {
-            if ( !empty( $field_text ) ) {
+            if ( !empty( trim( $field_text ) ) ) {
+                error_log('EIT Debug: Translating field "' . $field_key . '" with text: ' . substr($field_text, 0, 50) . '...');
                 $translated = $this->core_translate_text( $field_text, $target_language );
                 if ( $translated && $translated !== $field_text ) {
                     $field_mappings[$field_key] = $translated;
                     $combined_original[] = $field_text;
+                    error_log('EIT Debug: Successfully translated field "' . $field_key . '"');
                 } else {
-                    $all_translations_successful = false;
+                    $error_msg = 'Translation failed or returned same text for field: ' . $field_key;
+                    $translation_errors[] = $error_msg;
+                    error_log('EIT Debug: ' . $error_msg);
                 }
+            } else {
+                error_log('EIT Debug: Skipping empty field: ' . $field_key);
             }
         }
         
         if ( !empty( $field_mappings ) ) {
+            error_log('EIT Debug: Successfully translated ' . count($field_mappings) . ' fields for element: ' . $element['id']);
             return [
                 'id' => $element['id'],
                 'widgetType' => $element['widgetType'],
@@ -1113,6 +1122,7 @@ final class Elementor_Inline_Translate {
             ];
         }
 
+        error_log('EIT Debug: No successful translations for element: ' . $element['id'] . '. Errors: ' . implode(', ', $translation_errors));
         return false;
     }
 
@@ -1128,41 +1138,55 @@ final class Elementor_Inline_Translate {
     private function get_widget_text_fields( $widget_type, $settings ) {
         $fields = [];
         
+        error_log('EIT Debug: Getting text fields for widget type: ' . $widget_type . '. Available settings: ' . implode(', ', array_keys($settings)));
+        
         switch ( $widget_type ) {
             case 'heading':
-                if ( isset( $settings['title'] ) ) {
+                if ( isset( $settings['title'] ) && !empty( trim( $settings['title'] ) ) ) {
                     $fields['title'] = $settings['title'];
+                    error_log('EIT Debug: Found heading title: ' . substr($settings['title'], 0, 50) . '...');
                 }
                 break;
                 
             case 'text-editor':
-                if ( isset( $settings['editor'] ) ) {
-                    $fields['editor'] = wp_strip_all_tags( $settings['editor'] );
+                if ( isset( $settings['editor'] ) && !empty( trim( $settings['editor'] ) ) ) {
+                    // Keep HTML for text-editor, don't strip tags here
+                    $fields['editor'] = $settings['editor'];
+                    error_log('EIT Debug: Found text-editor content: ' . substr($settings['editor'], 0, 50) . '...');
                 }
                 break;
                 
             case 'button':
-                if ( isset( $settings['text'] ) ) {
+                if ( isset( $settings['text'] ) && !empty( trim( $settings['text'] ) ) ) {
                     $fields['text'] = $settings['text'];
+                    error_log('EIT Debug: Found button text: ' . $settings['text']);
                 }
                 break;
                 
             case 'icon-box':
-                if ( isset( $settings['title_text'] ) ) {
+                if ( isset( $settings['title_text'] ) && !empty( trim( $settings['title_text'] ) ) ) {
                     $fields['title_text'] = $settings['title_text'];
+                    error_log('EIT Debug: Found icon-box title: ' . $settings['title_text']);
                 }
-                if ( isset( $settings['description_text'] ) ) {
+                if ( isset( $settings['description_text'] ) && !empty( trim( $settings['description_text'] ) ) ) {
                     $fields['description_text'] = $settings['description_text'];
+                    error_log('EIT Debug: Found icon-box description: ' . substr($settings['description_text'], 0, 50) . '...');
                 }
                 break;
                 
             case 'divider':
-                if ( isset( $settings['text'] ) ) {
+                if ( isset( $settings['text'] ) && !empty( trim( $settings['text'] ) ) ) {
                     $fields['text'] = $settings['text'];
+                    error_log('EIT Debug: Found divider text: ' . $settings['text']);
                 }
+                break;
+                
+            default:
+                error_log('EIT Debug: Unsupported widget type for field extraction: ' . $widget_type);
                 break;
         }
         
+        error_log('EIT Debug: Extracted ' . count($fields) . ' text fields for ' . $widget_type . ': ' . implode(', ', array_keys($fields)));
         return $fields;
     }
 
