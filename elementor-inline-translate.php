@@ -865,13 +865,14 @@ final class Elementor_Inline_Translate {
         // Translate each element
         foreach ( $translatable_elements as $element ) {
             try {
-                $translated_element = $this->translate_single_element( $element, $target_language );
+                $translated_element = $this->translate_single_element_bulk( $element, $target_language );
                 if ( $translated_element ) {
                     $results[] = [
                         'id' => $element['id'],
                         'type' => $element['widgetType'],
                         'original' => $element['original_text'],
                         'translated' => $translated_element['translated_text'],
+                        'field_mappings' => $translated_element['field_mappings'], // New: specific field mappings
                         'success' => true
                     ];
                     $success_count++;
@@ -1059,6 +1060,111 @@ final class Elementor_Inline_Translate {
         }
 
         return false;
+    }
+
+    /**
+     * Translate a single element for bulk operations with field mapping
+     *
+     * @param array $element The element to translate
+     * @param string $target_language The target language code
+     * @return array|false The translation result with field mappings or false on failure
+     * @since 1.2.0
+     * @access private
+     */
+    private function translate_single_element_bulk( $element, $target_language ) {
+        if ( empty( $element['original_text'] ) ) {
+            return false;
+        }
+
+        $widget_type = $element['widgetType'];
+        $element_data = $element['element_data'];
+        $settings = isset( $element_data['settings'] ) ? $element_data['settings'] : [];
+        
+        // Get individual text fields for this widget type
+        $text_fields = $this->get_widget_text_fields( $widget_type, $settings );
+        
+        if ( empty( $text_fields ) ) {
+            return false;
+        }
+        
+        $field_mappings = [];
+        $combined_original = [];
+        $all_translations_successful = true;
+        
+        // Translate each field individually
+        foreach ( $text_fields as $field_key => $field_text ) {
+            if ( !empty( $field_text ) ) {
+                $translated = $this->core_translate_text( $field_text, $target_language );
+                if ( $translated && $translated !== $field_text ) {
+                    $field_mappings[$field_key] = $translated;
+                    $combined_original[] = $field_text;
+                } else {
+                    $all_translations_successful = false;
+                }
+            }
+        }
+        
+        if ( !empty( $field_mappings ) ) {
+            return [
+                'id' => $element['id'],
+                'widgetType' => $element['widgetType'],
+                'original_text' => implode( ' ', $combined_original ),
+                'translated_text' => implode( ' ', array_values( $field_mappings ) ),
+                'field_mappings' => $field_mappings
+            ];
+        }
+
+        return false;
+    }
+
+    /**
+     * Get individual text fields for a widget type
+     *
+     * @param string $widget_type The widget type
+     * @param array $settings The widget settings
+     * @return array Array of field_key => field_text pairs
+     * @since 1.2.0
+     * @access private
+     */
+    private function get_widget_text_fields( $widget_type, $settings ) {
+        $fields = [];
+        
+        switch ( $widget_type ) {
+            case 'heading':
+                if ( isset( $settings['title'] ) ) {
+                    $fields['title'] = $settings['title'];
+                }
+                break;
+                
+            case 'text-editor':
+                if ( isset( $settings['editor'] ) ) {
+                    $fields['editor'] = wp_strip_all_tags( $settings['editor'] );
+                }
+                break;
+                
+            case 'button':
+                if ( isset( $settings['text'] ) ) {
+                    $fields['text'] = $settings['text'];
+                }
+                break;
+                
+            case 'icon-box':
+                if ( isset( $settings['title_text'] ) ) {
+                    $fields['title_text'] = $settings['title_text'];
+                }
+                if ( isset( $settings['description_text'] ) ) {
+                    $fields['description_text'] = $settings['description_text'];
+                }
+                break;
+                
+            case 'divider':
+                if ( isset( $settings['text'] ) ) {
+                    $fields['text'] = $settings['text'];
+                }
+                break;
+        }
+        
+        return $fields;
     }
 
     /**

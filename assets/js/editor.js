@@ -1179,9 +1179,9 @@
 
                     if (response.success && response.data) {
                         const data = response.data;
-                        const translations = data.translations || [];
-                        const successful = data.successful_translations || 0;
-                        const failed = data.failed_translations || 0;
+                        const results = data.results || [];
+                        const successful = data.success_count || 0;
+                        const failed = data.error_count || 0;
                         const total = data.total_elements || 0;
 
                         // Update progress bar
@@ -1190,7 +1190,7 @@
                         progress.find('.eit-progress-text').text(`${total}/${total} elementer`);
 
                         // Apply translations to the page
-                        applyBulkTranslations(translations);
+                        applyBulkTranslations(results);
 
                         // Update status
                         status.html(`
@@ -1254,39 +1254,90 @@
         /**
          * Apply bulk translations to page elements
          */
-        function applyBulkTranslations(translations) {
-            console.log('EIT Debug: Applying bulk translations:', translations);
+        function applyBulkTranslations(results) {
+            console.log('EIT Debug: Applying bulk translations:', results);
 
-            if (!Array.isArray(translations)) {
-                console.error('EIT Error: Invalid translations data');
+            if (!Array.isArray(results)) {
+                console.error('EIT Error: Invalid results data');
                 return;
             }
 
             let appliedCount = 0;
 
-            translations.forEach(function(translation) {
-                if (translation.success && translation.translated_text) {
+            results.forEach(function(result) {
+                if (result.success && result.translated) {
                     try {
                         // Find the element in Elementor
-                        const element = elementor.getPreviewView().findElementModel(translation.element_id);
+                        const elementId = result.id;
+                        const widgetType = result.type;
                         
-                        if (element) {
+                        console.log('EIT Debug: Applying translation to element:', elementId, 'type:', widgetType);
+                        
+                        // Get the element container
+                        const container = elementor.getContainer(elementId);
+                        
+                        if (container) {
+                            const element = container.model;
                             const settings = element.get('settings');
-                            if (settings && settings.set) {
-                                settings.set(translation.control_name, translation.translated_text);
+                            
+                            let fieldsUpdated = 0;
+                            
+                            // If we have field mappings, use them for precise application
+                            if (result.field_mappings && typeof result.field_mappings === 'object') {
+                                console.log('EIT Debug: Using field mappings for element:', elementId, result.field_mappings);
+                                
+                                Object.keys(result.field_mappings).forEach(function(fieldKey) {
+                                    const translatedValue = result.field_mappings[fieldKey];
+                                    if (settings) {
+                                        settings.set(fieldKey, translatedValue);
+                                        fieldsUpdated++;
+                                        console.log('EIT Debug: Updated field', fieldKey, 'with:', translatedValue.substring(0, 50));
+                                    }
+                                });
+                            } else {
+                                // Fallback to simple translation application
+                                const translatedText = result.translated;
+                                let settingKey = '';
+                                
+                                switch (widgetType) {
+                                    case 'heading':
+                                        settingKey = 'title';
+                                        break;
+                                    case 'text-editor':
+                                        settingKey = 'editor';
+                                        break;
+                                    case 'button':
+                                        settingKey = 'text';
+                                        break;
+                                    case 'divider':
+                                        settingKey = 'text';
+                                        break;
+                                    default:
+                                        console.log('EIT Debug: Unsupported widget type for simple application:', widgetType);
+                                        return;
+                                }
+                                
+                                if (settingKey && settings) {
+                                    settings.set(settingKey, translatedText);
+                                    fieldsUpdated++;
+                                    console.log('EIT Debug: Applied simple translation to', settingKey, 'of element:', elementId);
+                                }
+                            }
+                            
+                            if (fieldsUpdated > 0) {
                                 appliedCount++;
-                                console.log('EIT Debug: Applied translation to element:', translation.element_id);
+                                console.log('EIT Debug: Successfully updated', fieldsUpdated, 'fields for element:', elementId);
                             }
                         } else {
-                            console.log('EIT Debug: Could not find element model for:', translation.element_id);
+                            console.log('EIT Debug: Could not find container for element:', elementId);
                         }
                     } catch (error) {
-                        console.error('EIT Error: Failed to apply translation to element:', translation.element_id, error);
+                        console.error('EIT Error: Failed to apply translation to element:', result.id, error);
                     }
                 }
             });
 
-            console.log(`EIT Debug: Applied ${appliedCount} out of ${translations.length} translations`);
+            console.log(`EIT Debug: Applied ${appliedCount} out of ${results.length} translations`);
 
             // Force preview refresh to show all changes
             setTimeout(function() {
